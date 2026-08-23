@@ -1,0 +1,27 @@
+{
+  "name": "F1 2026 Dashboard",
+  "short_name": "F1 2026",
+  "description": "Formula 1 2026 season dashboard — live timing, standings, telemetry, analytics",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#E10600",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Standings", "url": "/standings", "description": "Championship standings" },
+    { "name": "Calendar", "url": "/calendar", "description": "2026 race calendar" },
+    { "name": "Analytics", "url": "/analytics", "description": "Analytics hub" }
+  ]
+}

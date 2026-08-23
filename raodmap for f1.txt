@@ -1,0 +1,111 @@
+# F1 Dashboard — Mega-Project Phase Plan
+
+## Context
+
+The user wants to grow the F1 dashboard (at `C:\Projects\F1 DASHBOARD PROJECT\f1-dashboard\`) into a large-scale "Race Weekend Operating System" — predictor, fantasy 2.0, watch party, AI engineer, track map, achievements, social, and eventually hosting/monetization. Too big for one session, so work happens in phases. The deliverable of THIS plan: a `ROADMAP.md` file at the project root that encodes every phase, so "let's start phase N" in any future session is self-explanatory. Phase 1 (the user's explicit items 1–3) gets a detailed spec since it's built first.
+
+Decisions (user dismissed the question dialog; defaults announced and re-confirmed by proceeding):
+- **Phase 1 = race-weekend essentials**: calendar sync + notifications, live sector colors, live track mini-map.
+- **Local-first**: SQLite + local servers now; deployment/global accounts is its own late phase.
+- **AI Race Engineer** mid-roadmap; needs an Anthropic API key when we get there (user has no F1TV — irrelevant, our SignalR bridge is anonymous).
+- **Notifications now** = .ics calendar (works with site closed) + browser Notification API (site open). Phone push comes with the deployment phase.
+
+## What already exists (do not rebuild)
+
+- Live timing engine: `frontend/lib/live.ts` (OpenF1 + fallback to backend F1 SignalR bridge), `backend/routers/livetiming.py` (feeds already merged: TimingData **including per-driver `Sectors` with `Value`/`PersonalFastest`/`OverallFastest`**, TimingAppData stints, DriverList, WeatherData, RaceControlMessages, TrackStatus, LapCount). `.z` compressed topics (Position.z) currently skipped.
+- `/live` tower page: `frontend/app/live/page.tsx`.
+- Community chat (`/paddock` + `backend/routers/community.py`, SQLite), games + Pit Coins (`/games`, `frontend/lib/wallet.ts`), fantasy v1 (`/fantasy`), Driver Index (`components/standings/DriverIndex.tsx`).
+- Analytics (`app/analytics/page.tsx`): pace ranking, tyre deg, strategy sim, championship sim — tabular, no charts. Telemetry (`app/telemetry/page.tsx`): custom SVG mini-charts, compare endpoint exists (`/api/telemetry/.../compare`), **`pos_data` (x/y track coordinates) already returned by telemetry endpoints** — reuse for track outline.
+- Calendar (`app/calendar/page.tsx`): read-only cards, session times in IST, countdowns. No ICS/notifications anywhere (no service worker in project).
+- recharts + framer-motion + gsap installed. Backend: FastAPI + fastf1 + signalrcore + SQLite.
+
+## Implementation Steps
+
+### Step 1 — Create `ROADMAP.md` at `C:\Projects\F1 DASHBOARD PROJECT\f1-dashboard\ROADMAP.md`
+
+Write the roadmap below verbatim (it is the master reference for all future sessions). Also add one line to `frontend/CLAUDE.md` / `AGENTS.md`? — NO; instead add a pointer line in the repo root: nothing else needed, future sessions will be told "start phase N" and should read `ROADMAP.md`.
+
+---
+
+## ROADMAP.md content
+
+# F1 Dashboard — Master Roadmap
+North star: **Race Weekend OS** — a fan opens the site Friday before FP1 and never needs another tab until the podium.
+Rules: one phase per work session (token budget). Each phase ends verified in the browser. Mark phases `[DONE]` with date when completed. Local-first until Phase 12.
+
+## Phase 1 — Race Weekend Essentials `[NEXT]`
+User's explicit asks. Detailed spec:
+**1a. Calendar sync + session notifications**
+- Backend: `GET /api/sessions/calendar/{year}/ics` in `routers/sessions.py` — generate RFC-5545 `.ics` (stdlib, no deps) from the existing calendar data: one VEVENT per session (FP1/FP2/FP3/SQ/Sprint/Quali/Race, UTC times, VALARM -30min). Single "download season calendar" + per-race event links.
+- Frontend calendar page: "Sync to Calendar" button (downloads .ics → opens in Google/phone calendar with reminders that work even when site is closed); per-race "add this weekend" buttons.
+- Browser notifications: small `frontend/lib/notify.ts` — Notification permission prompt (settings toggle on calendar page), checks upcoming sessions (calendar data already fetched), fires notification at T-30min/T-5min/session start while site is open. Runs from layout so it works on any page.
+**1b. Live sector times (yellow/green/purple)**
+- Data already exists: F1 feed `TimingData.Lines[n].Sectors["0".."2"]` → `{Value, PersonalFastest, OverallFastest}` (normalized index-keyed dicts — use existing `indexedValues()` in `lib/live.ts`). OpenF1 path: `laps` rows have `duration_sector_1/2/3` — compute personal/overall best client-side.
+- Extend `TowerRow` with `sectors: {value: string|null, color: 'purple'|'green'|'yellow'}[3]`; map in `mapF1Feeds` (purple=OverallFastest, green=PersonalFastest, else yellow) and in the OpenF1 `rebuild()`.
+- `/live` tower: add S1/S2/S3 columns (font-num, colored via existing `--sector-*` CSS vars); AnimatePresence flash on change. Keep mobile horizontal scroll.
+**1c. Live track mini-map with driver badges**
+- Backend `routers/livetiming.py`: subscribe `Position.z`, decode (base64 + zlib inflate, raw deflate `-MAX_WBITS`) → keep only the LATEST position per driver `{X, Y, Status}` in state (do NOT accumulate history). Expose in `/state` feeds as `Position`.
+- Track outline: `GET /api/livetiming/track/{year}/{round}` — build once from fastf1 `pos_data` of any completed lap (reuse telemetry router's session-loading pattern in `routers/telemetry.py`), downsample to ~400 points, cache in memory + fastf1 cache. Fallback: accumulate live positions of the leader over 1–2 laps to trace the outline client-side if fastf1 has no data yet (FP1 Friday).
+- New `frontend/components/live/TrackMap.tsx`: SVG — outline path + one circle per driver (team color fill, TLA label, gold ring for P1), positions normalized to viewBox with framer-motion spring transitions; TrackStatus tint (yellow/SC/red). Place beside/below Race Control on `/live` (fits existing `.live-grid`).
+- Done when: during a live session the map shows moving dots; between sessions shows outline + "cars appear when session is live".
+
+## Phase 2 — Race Predictor v1 ⭐
+- `/predictor` page + `backend/routers/predictor.py` (SQLite tables: predictions, scores). Username = existing paddock name (`lib/wallet.ts getUsername`).
+- Per race weekend, form locks at quali/race start (calendar times): pole, podium top-3 in order, winner, fastest lap, first DNF (or "no DNF"), SC count, red flag count, biggest gainer/loser. (First-SC-lap + pit stop count later — need reliable result data.)
+- Auto-scoring endpoint: after race, score from backend results (`/api/sessions/{y}/{r}/R/results` + grid positions for gainer/loser). Points table in ROADMAP stays simple: pole 10, winner 10, podium exact 15/partial 5 each, FL 10, DNF 10, SC count 10, gainer/loser 10 each.
+- Leaderboards: per-race + season (SQLite aggregate). Global comes in Phase 12. Award Pit Coins for scores (wallet lib).
+
+## Phase 3 — Watch Party (Paddock 2.0)
+- Upgrade `/paddock` + `community.py`: session-linked live rooms (auto-created from live session), live polls (create/vote/results bars), emoji reactions with floating "emoji rain" bursts, spoiler toggle (blurs messages newer than your "delay" setting — FanCode delay friendly), pinned live predictions. GIFs = emoji/sticker set first (no external API key); Tenor optional later.
+- Consider FastAPI WebSocket for chat push (fallback: keep 3s polling). Voice channels = out of scope until Phase 12+.
+
+## Phase 4 — Achievements + unified Pit Coins economy
+- `frontend/lib/achievements.ts` + backend table; event hooks from predictor (correct pole ×N, perfect prediction, Safety Car Prophet), games (reaction times), quiz streaks, watch attendance ("watched every race" = visited /live during race). Badge cabinet on a `/profile` page; toast on unlock; coin rewards.
+
+## Phase 5 — PickStop (Fantasy 2.0)
+- Upgrade `/fantasy`: race-by-race scoring (not just season points), boost shop: Engine Upgrade (+x% driver pts), Pit Crew (pit-stop-related bonus), Weather Boost (2× if rain), Undercut Bonus (positions gained), Captain 2× multiplier. Budget economy tied to Pit Coins for boost purchases. Transfer windows between races. Backend table for team history so scoring is honest per round.
+
+## Phase 6 — AI Race Engineer 🎙️ (needs Anthropic API key)
+- `backend/routers/engineer.py`: POST /ask → Anthropic API (claude-sonnet-5 default), system prompt = race engineer persona; context injected per question: live `/state` snapshot (tower + stints + weather + race control), standings, circuit info. Streamed responses.
+- Chat dock on `/live` + standalone `/engineer` page. Rule-based fallback answers if no API key configured (env `ANTHROPIC_API_KEY`).
+
+## Phase 7 — Analytics Glow-Up (Battle Hub + Strategy Sim 2.0)
+- `/battle`: driver-vs-driver hub — animated recharts (radar for overall, overlaid telemetry from existing `/api/telemetry/.../compare`, quali H2H tally, race pace box plots, sector deltas, start position-gain), team-color themed, framer-motion staggered.
+- Strategy Sim 2.0: visual stint timeline (draggable pit laps, compound blocks), SC/rain toggles, predicted order list animating on change. Reuses `/api/analytics/strategy-sim` + extend backend for SC/weather params.
+- Restyle pace/degradation tabs with charts (recharts) instead of tables.
+
+## Phase 8 — Interactive Track Map 2.0
+- Full-page `/map`: Phase 1 map + AoA(DRS) zones, marshal mini-sectors colored by yellow/green (RaceControlMessages sectors), pit lane rendering, clickable driver dots → popup card (gap, last lap, tyre, position changes, mini speed trace), corner numbers, wind direction arrow from weather.
+
+## Phase 9 — Daily Quiz + Driver Popularity Index
+- Quiz: `backend/routers/quiz.py` generates 10 daily questions from real data (history stats, circuit records, season results — templates + data slots), deterministic per date; streaks + coins; `/quiz` page.
+- Popularity: log site interactions (driver page views, chat mentions, predictor picks, fantasy picks) → daily index + trending list + heat strip on home. All local data (no external social APIs).
+
+## Phase 10 — F1 Social Feed
+- `/feed`: posts (text/image link), like/comment/repost, follow users, driver/team tags, sort hot/new. SQLite + paddock usernames now; real accounts at Phase 12. Moderation basics (report, delete own).
+
+## Phase 11 — Custom Alerts, Widgets, Multi-Screen
+- Alert rules engine on live feed (`lib/alerts.ts` watching `useLiveSession` data): my-driver pits / fastest lap / SC / red flag / rain start / penalty (race control regex) → browser notifications + sound. Settings UI on /live.
+- Pop-out widgets: `/widget/[type]` minimal routes (timer, gaps, standings, weather) opened via `window.open` frameless; embeddable iframe snippet.
+- `/battlestation`: multi-pane grid (map | timing | telemetry | chat), pane picker, saved layouts (localStorage) — the "Race Weekend OS" cockpit.
+
+## Phase 12 — Go Online 🌐
+- Deploy: frontend → Vercel; backend → Railway/Fly (needs always-on for SignalR bridge); SQLite → Postgres (or Turso). Real auth (start with anonymous device accounts → optional email login). Global + friend leaderboards (predictor, fantasy, quiz), global watch party, social feed public. Phone push notifications (web push + service worker → lock-screen race alerts, PWA install = "mobile app v0").
+
+## Phase 13 — Platform & Revenue
+- Public API (keys, rate limits, docs) exposing processed timing/analytics/history. Premium tier (deeper AI engineer, unlimited comparisons, custom dashboards, ad-free), affiliate links (tickets/merch), donations. Native mobile app evaluation (React Native reusing the API) — only after PWA traction.
+
+### Data-source ground rules (apply to every phase)
+- Live during sessions: backend SignalR bridge (`/api/livetiming/*`) — anonymous, free, no F1TV needed.
+- Between sessions: OpenF1 (serial queue, 404=empty) + fastf1 (slow first load) + Jolpica for history.
+- Never fetch full OpenF1 `intervals` history; never burst-parallel OpenF1 calls.
+
+---
+
+### Step 2 — Update memory
+Add/refresh the auto-memory pointer that `ROADMAP.md` exists and phases are invoked by "start phase N" (update `f1-dashboard-ui-build` or the project-location memory).
+
+## Verification
+1. `ROADMAP.md` exists at project root, renders cleanly (markdown preview), and Phase 1 spec is detailed enough to execute without this conversation.
+2. Sanity-check the phase-1 technical claims already validated this session: `Sectors` data present in `/api/livetiming/state` during live sessions (verified in FP1 today); `pos_data` exists in telemetry endpoints (confirmed by exploration); Position.z decode approach matches the `.z` handling stub already in `livetiming.py`.
+3. No code changes in this plan-execution beyond the two files above — actual feature building starts when the user says "let's start Phase 1".

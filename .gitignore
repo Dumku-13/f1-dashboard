@@ -1,0 +1,67 @@
+# ============================================================================
+# Dependencies & build output
+# ============================================================================
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# ============================================================================
+# Caches — large and fully regenerable, never commit
+# ============================================================================
+# fastf1's race-data cache. ~3.1 GB. It refills itself on demand; committing it
+# would make the repo unusable.
+f1-dashboard/backend/cache/
+# Scratch dir the hero-frame encoder creates and deletes
+.hero-frames-tmp/
+.turbo/
+*.tsbuildinfo
+
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ============================================================================
+# Environment — machine-specific. See f1-dashboard/frontend/.env.example
+# ============================================================================
+.env
+.env.local
+.env*.local
+
+# ============================================================================
+# Separate projects / reference material — not needed to build or run this app
+# ============================================================================
+# VengenceUI is its OWN git repository. Nesting it here would break both.
+/VengenceUI/
+# Design research: screen recordings and stills used while designing. The
+# decisions taken from them are written up in frontend/FRONTEND_REDESIGN.md.
+/reference videos/
+/team videos/
+/dahsbaord video/
+/reerence pics/
+/lando norris reference website frames/
+/new updates for the dashbaord/
+
+# ============================================================================
+# Local tooling
+# ============================================================================
+.claude-code-history/
+.claude/settings.local.json
+**/.claude/settings.local.json
+
+# ============================================================================
+# OS / editor
+# ============================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+f1-dashboard/frontend/.git.disabled-create-next-app/

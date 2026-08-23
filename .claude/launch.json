@@ -1,0 +1,30 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "f1-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "f1-dashboard/frontend",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "f1-frontend-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "f1-dashboard/frontend",
+        "run",
+        "start",
+        "--",
+        "-p",
+        "3001"
+      ],
+      "port": 3001
+    }
+  ]
+}

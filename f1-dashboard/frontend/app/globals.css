@@ -1,0 +1,823 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (Tailwind v4): `.dark` on <html> drives `dark:` variants
+   instead of the OS `prefers-color-scheme`. The site is always dark. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================================
+   PIT WALL — design language
+   Flat carbon panels, hard edges, corner brackets, livery stripes.
+   Type: Chakra Petch (display) · Archivo (body) · IBM Plex Mono (timing).
+   No frosted glass, no glow soup. Race engineering, not vibes.
+   ========================================================================= */
+
+:root {
+  --background: #0B0C0E;
+  --surface: #121316;
+  --card: #16181C;
+  --border: #26282E;
+  --hairline: #1D1F24;
+  --foreground: #EDEFF2;
+  --muted: #8C939E;
+  --accent: #E10600;
+  --accent-hover: #FF2B24;
+  --amber: #FFC800;
+
+  /* Sector colors */
+  --sector-purple: #BF00FF;
+  --sector-green: #00D131;
+  --sector-yellow: #FFF200;
+
+  /* Compound colors */
+  --compound-soft: #E8002D;
+  --compound-medium: #FFF200;
+  --compound-hard: #FFFFFF;
+  --compound-inter: #39B54A;
+  --compound-wet: #0067FF;
+
+  --font-display: 'Chakra Petch', 'Archivo', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Archivo', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Pages hardcode the old fonts in inline styles — remap them to the new
+   system without touching 20 files. */
+[style*="Space Grotesk"] { font-family: var(--font-mono) !important; }
+[style*="Titillium"] { font-family: var(--font-display) !important; }
+
+::selection { background: var(--accent); color: #fff; }
+
+/* Scrollbar — square, industrial */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: #2A2D33; border: 2px solid var(--background); border-radius: 4px; transition: background 0.2s; }
+::-webkit-scrollbar-thumb:hover { background: #45494F; }
+
+/* Numeric font — timing-screen mono */
+.font-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ticker animation */
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-inner { animation: ticker 35s linear infinite; }
+.ticker-inner:hover { animation-play-state: paused; }
+
+/* Pulse for live indicator */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.live-dot { animation: live-pulse 1.5s ease-in-out infinite; }
+
+/* Sector color helpers */
+.sector-purple { color: var(--sector-purple); }
+.sector-green { color: var(--sector-green); }
+.sector-yellow { color: var(--sector-yellow); }
+
+.bg-sector-purple { background: var(--sector-purple); }
+.bg-sector-green { background: var(--sector-green); }
+.bg-sector-yellow { background: var(--sector-yellow); }
+
+/* Tyre compound colors */
+.tyre-SOFT { background: var(--compound-soft); }
+.tyre-MEDIUM { background: var(--compound-medium); }
+.tyre-HARD { background: var(--compound-hard); }
+.tyre-INTERMEDIATE { background: var(--compound-inter); }
+.tyre-WET { background: var(--compound-wet); }
+
+/* ============================================================================
+   Panels — flat, hard-edged, bracketed like technical drawings
+   ========================================================================= */
+
+.glass-card,
+.f1-card {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.3s ease;
+}
+.glass-card:hover,
+.f1-card:hover {
+  border-color: #3A3E46;
+  box-shadow: 0 2px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.02);
+}
+.glass-card-hover:hover {
+  border-color: var(--accent);
+  background: #191B20;
+  box-shadow: 0 4px 24px rgba(225,6,0,0.08), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+/* Registration-mark corner brackets — the panel signature */
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 11px;
+  height: 11px;
+  border-top: 2px solid var(--accent);
+  border-left: 2px solid var(--accent);
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+.glass-card::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 11px;
+  height: 11px;
+  border-bottom: 2px solid #3A3E46;
+  border-right: 2px solid #3A3E46;
+  pointer-events: none;
+  transition: opacity 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+.glass-card:hover::before { opacity: 1; width: 15px; height: 15px; }
+.glass-card:hover::after { width: 15px; height: 15px; }
+
+/* Panels sitting over imagery/video — dark ink, minimal blur (legibility only) */
+.glass-panel {
+  background: rgba(11, 12, 14, 0.82);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.glass-strong {
+  background: rgba(11, 12, 14, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Nav dock — flat pit-wall console (overrides the component's utilities) */
+.glass-dock {
+  background: rgba(14, 15, 18, 0.96) !important;
+  border: 1px solid var(--border) !important;
+  border-top: 2px solid var(--accent) !important;
+  border-radius: 2px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55) !important;
+}
+.glass-border {
+  border: 1px solid var(--border);
+}
+
+/* Soft float for hero elements */
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.float-soft { animation: float-soft 6s ease-in-out infinite; }
+
+/* Fade/rise entrance */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise-in { animation: rise-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Hide scrollbars where needed */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ============================================================================
+   Typography — technical, condensed, race-leaning
+   ========================================================================= */
+
+h1, h2, h3, h4, h5, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.005em;
+}
+
+/* Hero title — Chakra Petch italic caps, the racing lean */
+.display-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-style: italic;
+  letter-spacing: 0.01em;
+  line-height: 0.94;
+  text-transform: uppercase;
+}
+
+/* Eyebrow — reads like a code comment in an FIA doc */
+.kicker {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.26em;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--amber);
+}
+.kicker::before {
+  content: '// ';
+  color: var(--accent);
+  letter-spacing: 0;
+}
+
+/* Gradient text — kept for compatibility; tuned to the palette */
+.text-gradient {
+  background: linear-gradient(105deg, var(--grad-1, #ffffff) 30%, var(--grad-2, var(--accent)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Section label — square marker, no glow */
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  color: #C3C9D2;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.section-title::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  background: var(--bar, var(--accent));
+  box-shadow: 0 0 6px var(--bar, var(--accent));
+  transition: box-shadow 0.3s ease;
+}
+
+/* Stat numerals */
+.stat-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-shadow: 0 0 20px rgba(255,255,255,0.06);
+}
+
+/* ============================================================================
+   Tables
+   ========================================================================= */
+.f1-table { width: 100%; border-collapse: collapse; }
+.f1-table th {
+  background: #101114;
+  color: var(--muted);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.f1-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  transition: background 0.2s ease, padding-left 0.2s ease;
+}
+.f1-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+.f1-table tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.f1-table tr:last-child td { border-bottom: none; }
+
+/* Red accent bar */
+.accent-bar {
+  width: 100%;
+  height: 2px;
+  background: var(--accent);
+}
+
+/* ============================================================================
+   Live timing + utilities
+   ========================================================================= */
+/* Grid and flex items default to `min-width: auto`, which means they refuse to
+   shrink below their content's min-content width — so one wide chart legend or
+   an unwrapped table stretches its whole column past the viewport and the page
+   scrolls sideways. The tracks below are already `minmax(0, …)` or `minmax(280px, …)`,
+   so pinning the ITEM to 0 changes nothing on desktop; it only stops the item
+   overflowing its own track, and lets the `overflow-x: auto` wrappers inside
+   actually scroll instead of pushing the page wide. */
+.live-grid > *,
+.map-grid > * { min-width: 0; }
+
+@media (max-width: 900px) {
+  .live-grid,
+  /* .map-grid had no rule at all — the class was applied in app/map but
+     never defined, so the layout never collapsed on a phone. */
+  .map-grid { grid-template-columns: 1fr !important; }
+}
+
+.tower-row { transition: background 0.25s ease, transform 0.2s ease; }
+.tower-row:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Shimmer sweep for skeletons */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(100deg, rgba(255,255,255,0.03) 38%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 62%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+  border-radius: 2px;
+}
+
+/* Kept for compatibility (LIVE chips, coins) — restrained */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px var(--glow, rgba(0,209,49,0.45)); }
+  50% { box-shadow: 0 0 0 3px var(--glow, rgba(0,209,49,0.2)); }
+}
+.glow-pulse { animation: glow-pulse 2s ease-in-out infinite; }
+
+/* Speed lines — hairline diagonals, technical not decorative */
+@keyframes speed-slide {
+  from { transform: translateX(-30%); }
+  to { transform: translateX(30%); }
+}
+.speed-lines {
+  position: absolute;
+  inset: -20% -40%;
+  pointer-events: none;
+  background: repeating-linear-gradient(105deg, transparent 0 56px, rgba(255,255,255,0.022) 56px 57px);
+  animation: speed-slide 14s linear infinite alternate;
+}
+
+/* Featured block — livery stripe across the top */
+.featured-card {
+  position: relative;
+  border-radius: 2px;
+  background: #17181D;
+  border: 1px solid #2E3138;
+  transition: border-color 0.25s ease, box-shadow 0.3s ease;
+}
+.featured-card:hover {
+  border-color: #3A3E46;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+}
+.featured-card::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  right: -1px;
+  height: 3px;
+  background: linear-gradient(90deg,
+    var(--accent) 0, var(--accent) 72px,
+    var(--amber) 72px, var(--amber) 86px,
+    #2E3138 86px);
+  pointer-events: none;
+  transition: height 0.25s ease;
+}
+.featured-card:hover::after {
+  height: 4px;
+}
+
+/* Hazard tape — for live/danger accents */
+.hazard-stripe {
+  background: repeating-linear-gradient(-45deg,
+    var(--accent) 0 10px, #17181D 10px 20px);
+}
+
+/* Chat bubbles (paddock) — radio log entries */
+.chat-bubble {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid #3A3E46;
+  border-radius: 2px;
+  padding: 10px 14px;
+}
+.chat-bubble.own {
+  background: rgba(225, 6, 0, 0.10);
+  border-color: rgba(225, 6, 0, 0.22);
+  border-left: 2px solid var(--accent);
+}
+
+/* Reaction game lights — literal start lights, keep round + glowing */
+.race-light {
+  width: clamp(34px, 8vw, 56px);
+  height: clamp(34px, 8vw, 56px);
+  border-radius: 50%;
+  background: #1a1a1d;
+  border: 2px solid rgba(255,255,255,0.1);
+  transition: background 0.08s ease, box-shadow 0.08s ease;
+}
+.race-light.on {
+  background: #E8002D;
+  box-shadow: 0 0 22px rgba(232,0,45,0.8), inset 0 0 8px rgba(255,255,255,0.35);
+  border-color: rgba(255,120,120,0.6);
+}
+
+/* ============================================================================
+   Film grain — kept, dialed down
+   ========================================================================= */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Refresh-button spinner (news, and anywhere else a control shows in-flight state) */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+
+/* ============================================================================
+   Focus + skip link
+   ========================================================================= */
+
+/* Inline `outline: none` is used on most inputs in this app for the flat PIT
+   WALL look, which left keyboard focus completely invisible. This restores a
+   visible ring for keyboard users only — pointer users never see it. The
+   box-shadow is there because inline `outline: none` on an element beats this
+   rule's `outline`, but cannot beat a property it doesn't set. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -60px;
+  z-index: 100;
+  padding: 9px 16px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  border-radius: 2px;
+  transition: top 0.15s ease;
+}
+.skip-link:focus { top: 8px; }
+
+/* ============================================================================
+   TYPE SYSTEM — the landing page's typography, app-wide.
+   Proven on /live first (the densest screen) before going global.
+
+   Typography ONLY. Ground, tokens, spacing and layout are untouched: the app
+   stays PIT WALL dark. A cream editorial mode was built, sampled and rejected —
+   do not reintroduce it.
+   ========================================================================= */
+
+h1,
+.display-title {
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-weight: 900;
+  font-stretch: 125%;
+  line-height: 0.88;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+h2,
+.section-title {
+  font-family: 'Archivo', system-ui, sans-serif;
+  font-weight: 800;
+  font-stretch: 118%;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Mono micro-label with the red rule — the landing page's signature. */
+.kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.kicker::before {
+  content: '';
+  width: 34px;
+  height: 2px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Flat, hard-edged panels. The audit already noted these render flat; this
+   only sharpens the corners and drops the leftover shadow. */
+.glass-card,
+.glass-panel {
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+/* --- precision grids keep the body face ---------------------------------
+   Measured on the timing tower: Archivo Expanded pushes the DRIVER cell's
+   content from 97px to 120px inside a 106px column and drops the tightest
+   headers to 4px of headroom, on a grid tuned to fit 840px with zero overflow.
+   Retype the chrome, leave fitted data grids alone. Anything with the same
+   constraint should be added here rather than fought with overrides. */
+.tower-row,
+.tower-row *,
+.tower-head,
+.tower-head * {
+  font-stretch: 100%;
+}
+
+/* ============================================================================
+   MOTION — Phase 12.
+
+   Tiers from FRONTEND_REDESIGN: micro 120-200ms · UI 200-450ms · cinematic is
+   scroll-driven and lives with the thing it drives. One easing curve.
+   ========================================================================= */
+:root {
+  --dur-micro: 160ms;
+  --dur-ui: 320ms;
+  --dur-slow: 450ms;
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* framer-motion is handled by <MotionConfig reducedMotion="user"> in the root
+   layout. This covers everything it doesn't own — CSS transitions, keyframes,
+   and smooth scrolling — so the preference is honoured across the whole app
+   rather than only the parts built with a library. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================================
+   TOUCH TARGETS — Phase 13.
+
+   Measured at 375px before this rule: the broadcast-delay select on /live was
+   **14px tall**, the driver-pin chips on /follow were 29px, and most controls
+   sat at 31px. 53 of 57 tappable elements on /follow were under 40px. That is
+   not a layout bug — nothing overflowed — but it is unusable with a thumb, and
+   /live and /follow are exactly the pages you use one-handed during a race.
+
+   Scoped to `pointer: coarse` rather than a width breakpoint: a narrow desktop
+   window has a mouse and does not want inflated controls, while a large tablet
+   does. It keys off the input device, which is the thing that actually matters.
+
+   Buttons and form controls only — not `<a>`, because most links here are
+   inline text inside prose and a 40px minimum would wreck the line boxes.
+   ========================================================================= */
+@media (pointer: coarse) {
+  button,
+  select,
+  [role='button'],
+  input:not([type='hidden']) {
+    min-height: 40px;
+  }
+
+  /* A select's arrow needs room or the label truncates once it grows. */
+  select {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+}
+
+/* --- Phase 08: driver page as an environment ----------------------------- */
+.dr-hero {
+  position: relative;
+  padding: clamp(20px, 4vh, 46px) 0 clamp(18px, 3vh, 34px);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: clamp(18px, 3vh, 30px);
+  overflow: hidden;
+}
+/* The car number was 92px of hero real estate telling you nothing about the
+   season. It reads better as a watermark behind the name it belongs to. */
+.dr-num {
+  position: absolute;
+  right: -0.06em; top: 50%;
+  transform: translateY(-52%);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: clamp(150px, 27vw, 330px);
+  line-height: 0.78;
+  color: var(--accent);
+  opacity: 0.13;
+  pointer-events: none;
+  user-select: none;
+}
+.dr-hero-body { position: relative; z-index: 1; }
+.dr-name {
+  font-size: clamp(32px, 6.4vw, 84px);
+  margin: 12px 0 0;
+  color: var(--foreground);
+}
+.dr-headline {
+  display: flex; flex-wrap: wrap; gap: clamp(24px, 6vw, 76px);
+  margin-top: clamp(18px, 3vh, 34px);
+}
+.dr-standing { display: flex; flex-direction: column; gap: 4px; }
+.dr-standing-val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: clamp(38px, 7vw, 88px);
+  line-height: 0.92;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.dr-standing-lab {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted);
+}
+
+.dr-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
+  gap: clamp(14px, 3vw, 38px);
+  padding-bottom: clamp(18px, 3vh, 28px);
+  margin-bottom: clamp(16px, 3vh, 26px);
+  border-bottom: 1px solid var(--hairline);
+}
+.dr-stats > div { display: flex; flex-direction: column; gap: 5px; }
+.dr-stat-lab {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted);
+}
+.dr-stat-val {
+  font-family: var(--font-mono); font-weight: 600;
+  font-size: clamp(20px, 2.4vw, 30px); font-variant-numeric: tabular-nums;
+}
+
+/* The environment shifts with the tab rather than only the panel below it —
+   "switching transforms the environment, it does not swap one card layout for
+   another". The backdrop is driven by a data attribute on the page root. */
+.dr-env {
+  transition: background 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dr-env[data-tab='career'] {
+  background: radial-gradient(120% 90% at 12% 0%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 58%);
+}
+.dr-env[data-tab='season'] {
+  background: radial-gradient(110% 85% at 88% 0%, color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 55%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-env { transition: none; }
+}
+
+/* --- Phase 09: fastest-lap compare bar under the circuit ----------------- */
+.lc-bar {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2vw, 26px);
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+.lc-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lc-picker select {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 7px 10px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.lc-hint { margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+.lc-readout { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-left: auto; }
+.lc-corner {
+  font-family: var(--font-display);
+  font-weight: 800; font-stretch: 118%;
+  font-size: 15px; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.lc-rows { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.lc-row { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+.lc-row i { width: 9px; height: 9px; border-radius: 1px; display: inline-block; flex-shrink: 0; }
+.lc-row b { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.04em; }
+.lc-row .font-num { color: var(--muted); }
+.lc-delta {
+  font-size: 12px; font-weight: 700;
+  padding: 3px 9px; border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: #FF6A62;
+}
+
+
+/* Top-centre "F1 Dashboard" link. Deliberately near-invisible at rest — it is
+   chrome, not a call to action, and it sits over the hero artwork. Comes up to
+   full strength on hover and keyboard focus so it is never hard to reach. */
+.home-chip:hover,
+.home-chip:focus-visible {
+  opacity: 1 !important;
+  background: color-mix(in srgb, var(--surface) 82%, transparent) !important;
+  border-color: var(--border) !important;
+}
+
+/* ============================================================================
+   Input polish — subtle border glow on focus
+   ========================================================================= */
+input[type="text"],
+input[type="number"],
+input[type="search"],
+input[type="email"],
+textarea,
+select {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+input[type="email"]:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 1px rgba(225,6,0,0.25);
+}
+
+/* ============================================================================
+   Link hover — subtle accent underline slide-in
+   ========================================================================= */
+a:not([class]) {
+  text-decoration: none;
+  color: var(--foreground);
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-size: 0% 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition: background-size 0.3s ease, color 0.2s ease;
+}
+a:not([class]):hover {
+  background-size: 100% 1px;
+  color: var(--accent-hover);
+}
+
+/* ============================================================================
+   Smooth image load
+   ========================================================================= */
+img {
+  transition: opacity 0.3s ease;
+}
+
+/* ============================================================================
+   Subtle vignette for depth
+   ========================================================================= */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,0.25) 100%);
+}
+
+/* Heading-element section titles keep the span's box: a bare <h2> brings
+   ~0.83em of UA margin that a <span> never had, so converting one to real
+   heading semantics would otherwise shift the panel it sits in. */
+h1.section-title, h2.section-title, h3.section-title, h4.section-title {
+  margin: 0;
+}
