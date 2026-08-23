@@ -53,6 +53,17 @@ IDLE_STOP_S = 300  # stop the feed when nobody has polled /state for this long
 
 _lock = threading.Lock()
 _state: dict = {"feeds": {}, "connected": False, "last_message": 0.0, "error": None}
+# Per-topic frame counters + the last Position decode error.
+#
+# These exist because car x/y silently never arrived. The captured fixture
+# (fixtures/livetiming-sprintquali-zandvoort-2026.json) shows all six snapshots
+# with connected=True, error=None, every other feed populated, and
+# Position=None — and `_apply_position` swallowed whatever went wrong, so there
+# was no way to tell "frames never arrived" from "every frame failed to
+# decode". Those two have completely different fixes. `/state` now reports the
+# counts so one glance at a live session settles it.
+_diag: dict = {"frames": {}, "position_errors": 0, "position_last_error": None,
+               "position_applied": 0}
 _thread: threading.Thread | None = None
 _last_poll: float = 0.0
 
@@ -91,9 +102,11 @@ def _apply_position(payload):
             payload = json.loads(zlib.decompress(base64.b64decode(payload), -zlib.MAX_WBITS))
         samples = payload.get("Position", []) if isinstance(payload, dict) else []
         if not samples:
+            _note_position_error("decoded frame carried no 'Position' samples")
             return
         latest = samples[-1].get("Entries", {})
         if not isinstance(latest, dict):
+            _note_position_error(f"'Entries' was {type(latest).__name__}, not a dict")
             return
         with _lock:
             cur = _state["feeds"].setdefault("Position", {})
@@ -104,12 +117,29 @@ def _apply_position(payload):
                         "Y": entry.get("Y"),
                         "Status": entry.get("Status"),
                     }
+            _diag["position_applied"] += 1
             _state["last_message"] = time.time()
-    except Exception:  # noqa: BLE001 — a bad frame must not kill the feed
-        pass
+    except Exception as exc:  # noqa: BLE001 — a bad frame must not kill the feed
+        # Still must not kill the feed, but it must no longer be invisible.
+        _note_position_error(f"{type(exc).__name__}: {exc}"[:180])
+
+
+def _count_frame(topic: str) -> None:
+    """One counter per topic. A zero next to `Position.z` after a live session
+    means F1 never sent it; a high count beside `position_errors` means it
+    arrived and the decode is at fault."""
+    with _lock:
+        _diag["frames"][topic] = _diag["frames"].get(topic, 0) + 1
+
+
+def _note_position_error(msg: str) -> None:
+    with _lock:
+        _diag["position_errors"] += 1
+        _diag["position_last_error"] = msg
 
 
 def _apply_snapshot(topic: str, payload):
+    _count_frame(topic)
     if topic == "Position.z":
         _apply_position(payload)
         return
@@ -121,6 +151,7 @@ def _apply_snapshot(topic: str, payload):
 
 
 def _apply_patch(topic: str, payload):
+    _count_frame(topic)
     if topic == "Position.z":
         _apply_position(payload)
         return
@@ -294,6 +325,12 @@ async def live_state():
         connected = _state["connected"]
         error = _state["error"]
         last_msg = _state["last_message"]
+        diag = {
+            "frames": dict(_diag["frames"]),
+            "position_applied": _diag["position_applied"],
+            "position_errors": _diag["position_errors"],
+            "position_last_error": _diag["position_last_error"],
+        }
 
     timing = feeds.get("TimingData") or {}
     active = bool(connected and isinstance(timing, dict) and timing.get("Lines"))
@@ -302,6 +339,7 @@ async def live_state():
         "connected": connected,
         "error": error,
         "last_message_age_s": round(time.time() - last_msg, 1) if last_msg else None,
+        "diag": diag,
         "feeds": feeds,
     }
 

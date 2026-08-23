@@ -23,6 +23,112 @@ const SLOW_POLL = 15000  // laps, stints, race control, weather
 const F1_POLL = 4000     // backend livetiming bridge
 const MODE_CHECK_POLL = 30000 // re-check "is a session live?" to start/stop the loops
 
+/** How far back to ask OpenF1 for car positions. Wide enough to always contain
+ *  a sample (they arrive ~4/s per car), narrow enough to stay one small page. */
+const OPENF1_POS_LOOKBACK_MS = 8000
+/** Never re-ask OpenF1 for positions faster than this, whatever the caller does. */
+const OPENF1_POS_MIN_GAP_MS = 4000
+
+let openF1PosLastTry = 0
+let openF1PosBackoffUntil = 0
+
+export interface OpenF1LocationRow {
+  driver_number: number
+  x: number
+  y: number
+  date: string
+}
+
+/**
+ * Newest usable fix per driver from a window of OpenF1 `location` rows.
+ *
+ * Pure and exported because the interesting cases can't be summoned on demand:
+ * the endpoint returns a *time window* containing many samples per car in no
+ * guaranteed order, and cars with no fix report a literal (0,0) that would park
+ * them all in the same corner of the map. See `scripts/car-positions.test.mjs`,
+ * which runs this against a real captured Zandvoort window.
+ */
+export function selectLatestPositions(
+  rows: OpenF1LocationRow[],
+): Record<string, { X: number; Y: number }> {
+  const latest = new Map<number, { X: number; Y: number; at: number }>()
+  ;(Array.isArray(rows) ? rows : []).forEach(r => {
+    // `Number(null)` is 0, not NaN — so a null coordinate would survive the
+    // finite check and then survive the (0,0) check too if the other axis had
+    // a value, planting the car on the pit straight. Reject the empties first.
+    if (r?.x == null || r?.y == null) return
+    const x = Number(r.x), y = Number(r.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    // (0,0) is OpenF1's "no fix", not a point on the pit straight.
+    if (x === 0 && y === 0) return
+    const at = Date.parse(r.date)
+    if (!Number.isFinite(at)) return
+    const prev = latest.get(r.driver_number)
+    if (!prev || at > prev.at) latest.set(r.driver_number, { X: x, Y: y, at })
+  })
+  const out: Record<string, { X: number; Y: number }> = {}
+  latest.forEach((v, num) => { out[String(num)] = { X: v.X, Y: v.Y } })
+  return out
+}
+
+/**
+ * Latest car x/y per driver, from OpenF1's `location` endpoint, shaped exactly
+ * like the F1 bridge's `Position` feed so it can be dropped in unchanged.
+ *
+ * This exists because the track-map dots never appeared. The chain in front of
+ * them is fine — `mapF1Feeds` reads `feeds.Position`, `pos` flows to `TowerRow`,
+ * `CircuitMap` projects it — but the bridge's `Position` feed is empty. The
+ * captured fixture shows all six snapshots with `connected: true`, no error,
+ * every other feed populated, and `Position: null`. Backend diagnostics now
+ * record whether those frames arrive at all (see `/state` → `diag`), but the
+ * dots should not wait on that answer.
+ *
+ * The comment this replaces claimed "OpenF1 carries no car x/y". It does:
+ * `/location` returns `{x, y, z}` per driver, **in the same coordinate space as
+ * the track outline** — verified against Zandvoort, whose geometry spans
+ * x −1015..8701 / y −1606..6702 with the start line at [595, 3990], while
+ * OpenF1 puts car 1 at (305, 3264) at session start. No transform is needed;
+ * the map's existing rotate + project handles it.
+ *
+ * One request covers every car (20 drivers, ~18 KB, ~0.8s measured) — asking
+ * per-driver would be 20 requests a tick, which is exactly the pattern that
+ * earned this app an OpenF1 429 before.
+ */
+async function fetchOpenF1CarPositions(
+  sessionKey: string | number = 'latest',
+): Promise<Record<string, { X: number; Y: number }>> {
+  const now = Date.now()
+  if (now < openF1PosBackoffUntil || now - openF1PosLastTry < OPENF1_POS_MIN_GAP_MS) return {}
+  openF1PosLastTry = now
+  try {
+    const since = new Date(now - OPENF1_POS_LOOKBACK_MS).toISOString()
+    // `>` must be percent-encoded — OpenF1's comparison operators are part of
+    // the parameter name, not the value.
+    const res = await fetch(
+      `${OPENF1}/location?session_key=${sessionKey}&date%3E${since}`,
+      { cache: 'no-store' },
+    )
+    if (!res.ok) {
+      // 401 during a live session is the documented OpenF1 behaviour that the
+      // F1 bridge exists to work around; back off rather than retry into it.
+      openF1PosBackoffUntil = Date.now() + (res.status === 429 || res.status === 401 ? 60_000 : 15_000)
+      return {}
+    }
+    return selectLatestPositions(await res.json())
+  } catch {
+    openF1PosBackoffUntil = Date.now() + 15_000
+    return {}
+  }
+}
+
+/** Does a `Position` feed actually carry a usable fix for anyone? */
+function hasCarPositions(feed: unknown): boolean {
+  if (!feed || typeof feed !== 'object') return false
+  return Object.values(feed as Record<string, any>).some(
+    e => Number.isFinite(Number(e?.X)) && Number.isFinite(Number(e?.Y)),
+  )
+}
+
 /**
  * Coarse track regime from the newest race-control messages, in the vocabulary
  * `lib/alerts.ts` `trackRegime()` understands. OpenF1 exposes no TrackStatus
@@ -859,6 +965,16 @@ function useLiveSessionRaw(): EngineState {
           }))
           return
         }
+        // The bridge is the richer source, but its `Position` feed has been
+        // arriving empty (see `fetchOpenF1CarPositions`). Everything else in
+        // the payload is still good, so only the dots fall back.
+        if (!hasCarPositions(data.feeds?.Position)) {
+          const fallback = await fetchOpenF1CarPositions()
+          if (cancelled) return
+          if (Object.keys(fallback).length) {
+            data.feeds = { ...(data.feeds || {}), Position: fallback }
+          }
+        }
         const mapped = mapF1Feeds(data.feeds)
         mapped.rows.forEach(r => {
           const prev = prevF1Positions.get(r.driver.driver_number)
@@ -958,9 +1074,14 @@ function useLiveSessionRaw(): EngineState {
         await Promise.all([pollSlow(true, live), pollFast(true, live)])
         if (cancelled) return
 
-        // OpenF1 carries no car x/y — graft positions from our own bridge
-        // so the track-map dots work on this source too. Polling /state is
-        // also what keeps the backend's SignalR worker connected.
+        // Car x/y comes from our own bridge when it has it. Polling /state is
+        // also what keeps the backend's SignalR worker connected, so this runs
+        // even when the positions themselves come from elsewhere.
+        //
+        // It used to say "OpenF1 carries no car x/y". That is wrong — OpenF1's
+        // `/location` does — and believing it left the track map with no
+        // fallback at all when the bridge's Position feed came up empty, which
+        // is exactly what it does.
         const pollBridgePositions = async () => {
           try {
             const res = await fetch(`${BACKEND}/api/livetiming/state`, { cache: 'no-store' })
@@ -978,7 +1099,24 @@ function useLiveSessionRaw(): EngineState {
               }
             })
             if (changed) rebuild('live')
-          } catch { /* bridge offline — dots simply stay hidden */ }
+            if (!changed) await graftOpenF1Positions()
+          } catch {
+            // Bridge offline — try the other source before giving up on dots.
+            await graftOpenF1Positions()
+          }
+        }
+
+        /** Fill `carXY` from OpenF1 when the bridge has no fix to offer. */
+        const graftOpenF1Positions = async () => {
+          const key = s.session?.session_key ?? 'latest'
+          const fallback = await fetchOpenF1CarPositions(key)
+          if (cancelled) return
+          let changed = false
+          Object.entries(fallback).forEach(([num, entry]) => {
+            s.carXY.set(Number(num), { x: entry.X, y: entry.Y })
+            changed = true
+          })
+          if (changed) rebuild('live')
         }
 
         // `sessionIsLive` used to be evaluated exactly once, at mount. Opening

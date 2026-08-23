@@ -93,6 +93,7 @@ node scripts/battle-gaps.test.mjs        # Follow Along gaps + gap-trend maturin
 node scripts/driver-story.test.mjs       # Follow Along event derivation from snapshot diffs
 node scripts/lap-trace.test.mjs          # telemetry join: speed onto position, corner lookup
 node scripts/telemetry-delta.test.mjs    # lap time delta: interpolation, sign, shorter-lap clipping
+node scripts/car-positions.test.mjs      # track-map dots: newest fix per car, (0,0) no-fix, on-outline check
 ```
 
 There is no test runner; these use `jiti` (already a dependency) to import the real TypeScript, so
@@ -788,6 +789,12 @@ Each is a fixed bug. Re-check after any refactor of these files.
 | `lib/live.ts` | `miniSectors` / `speeds` / `teamRadio` are **empty on the OpenF1 source**; every consumer must degrade, not assume F1 data |
 | `routers/livetiming.py` | `"TeamRadio"` must stay in `TOPICS`, and clip URLs need `SessionInfo.Path` — the capture `Path` alone is not playable |
 | `routers/analysis.py` | `benchmarks` `track_record` is scan-bounded, not all-time; keep `seasons_scanned` + `note` in the payload |
+| `routers/livetiming.py` | `_apply_position` **records** failures into `_diag` instead of swallowing them. The bare `except: pass` it replaced is what hid the track-map bug: "F1 never sent Position.z" and "every frame failed to decode" produced identical symptoms. |
+| `routers/livetiming.py` | `_count_frame` runs on **every** inbound topic, snapshot and patch alike — a topic missing from `diag.frames` is the evidence that F1 isn't sending it |
+| `lib/live.ts` | `selectLatestPositions` rejects a literal **(0,0)** — that is OpenF1's "no fix", and treating it as a coordinate parks every affected car in the same spot near the origin |
+| `lib/live.ts` | `selectLatestPositions` rejects **null** coordinates *before* `Number()` — `Number(null)` is `0`, not `NaN`, so a null passes the finite check and then survives the (0,0) check whenever the other axis has a value |
+| `lib/live.ts` | positions are fetched **once for all cars** (`/location` with no `driver_number`); per-driver requests would be 20 calls a tick, the exact pattern that earned an OpenF1 429 before |
+| `lib/live.ts` | OpenF1 positions are a **fallback**, only consulted when `hasCarPositions(feeds.Position)` is false — the bridge stays primary because it is richer and lower-latency |
 | `routers/analysis.py` | `_fastest_lap_at` re-checks the matched event's circuit — `fastf1.get_session(y, location, …)` fuzzy-matches the whole calendar and can silently land on a different circuit |
 | `app/live/page.tsx` | tower rows use `layout="position"` + `initial={false}` — restoring `layoutId` or a per-row entry `delay` brings back rows stuck at opacity 0 mid-resort |
 | `app/live/page.tsx` | the grid is tuned to fit 840px with **zero** overflow; widening a column hides PIT/TYRE again |
@@ -948,6 +955,36 @@ collaborators appending to it is what stops one person re-breaking what the
 other repaired. Add a row whenever you fix something whose cause wasn't obvious.
 
 ## 8. Open items
+
+**Track-map dots — root cause found (2026-08-23)**
+
+The dots never appeared during a live session. Everything in front of them was
+already correct: `mapF1Feeds` reads `feeds.Position`, `pos` flows onto
+`TowerRow`, `CircuitMap` rotates and projects it. The data was the problem.
+
+`/state` now carries a **`diag`** block, and it answers the question outright:
+
+```
+frames: {DriverList:1, SessionInfo:1, SessionStatus:1, TimingData:1,
+         TimingAppData:1, WeatherData:1, RaceControlMessages:1,
+         LapCount:1, TrackStatus:1, TeamRadio:1}
+position_applied: 0   position_errors: 0   position_last_error: None
+```
+
+**`Position.z` is absent from `frames` entirely.** Every other subscribed topic
+arrived; the compressed position topic never did. `position_errors: 0` rules out
+the decoder — which is fine, and has a check proving it handles a well-formed
+frame. So F1 is not sending `Position.z` to this client at all, and the old bare
+`except: pass` in `_apply_position` made "never arrived" and "every frame failed
+to decode" look identical. **Why F1 withholds it is still open** — that needs a
+live session to pursue.
+
+Meanwhile the dots are fed from **OpenF1 `/location`**, which the code
+previously claimed did not exist ("OpenF1 carries no car x/y" — it does).
+Critically it is in **the same coordinate space as the track outline**, so no
+transform is involved: verified against today's 2026 Dutch GP, where all 20 cars
+with a fix land on the traced Zandvoort outline, worst offset 122 units on a
+12,784-unit circuit (tolerance 639).
 
 **Blocked on the user**
 - **Mapbox token** → `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local`. Only thing gating
