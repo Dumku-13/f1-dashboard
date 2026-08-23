@@ -8,7 +8,7 @@ cache_path = os.path.join(os.path.dirname(__file__), "cache")
 os.makedirs(cache_path, exist_ok=True)
 fastf1.Cache.enable_cache(cache_path)
 
-from routers import sessions, standings, drivers, teams, telemetry, analytics, circuit, live, season_stats, community, livetiming, predictor, fantasy, engineer, quiz, popularity, feed, auth, news, analysis
+from routers import sessions, standings, drivers, teams, telemetry, analytics, circuit, live, season_stats, community, livetiming, predictor, fantasy, engineer, quiz, popularity, feed, auth, news, analysis, kalshi
 
 app = FastAPI(
     title="F1 2026 Dashboard API",
@@ -43,6 +43,7 @@ app.include_router(popularity.router, prefix="/api/popularity", tags=["popularit
 app.include_router(feed.router, prefix="/api/feed", tags=["feed"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(news.router, prefix="/api/news", tags=["news"])
+app.include_router(kalshi.router, prefix="/api/kalshi", tags=["kalshi"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 
 

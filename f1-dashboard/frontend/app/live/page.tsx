@@ -12,6 +12,7 @@ import AlertToaster from '@/components/alerts/AlertToaster'
 import AlertSettings from '@/components/alerts/AlertSettings'
 import PopOutButton from '@/components/widgets/PopOutButton'
 import TrackMap from '@/components/live/TrackMap'
+import SessionClock from '@/components/live/SessionClock'
 import EngineerDock from '@/components/engineer/EngineerDock'
 import { COMPOUND_COLORS, FLAG_COLORS } from '@/lib/constants'
 import { Flag, Thermometer, Wind, Droplets, Radio, Bell, Clock, Maximize2, Minimize2 } from 'lucide-react'
@@ -272,6 +273,9 @@ export default function LivePage() {
 
         {!expanded && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Top of the rail: mid-session the first thing you want is how long
+              is left, and off-session, when the next one starts. */}
+          <SessionClock session={session} live={status === 'live'} />
           <TrackMap rows={rows} live={status === 'live'} trackStatus={trackStatus} />
           <BenchmarksPanel session={session} rows={rows} />
           <RaceControlFeed items={raceControl} />
