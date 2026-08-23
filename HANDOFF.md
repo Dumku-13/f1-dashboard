@@ -1,17 +1,21 @@
 # F1 Dashboard — Project Handoff
 
-**Last updated:** 2026-08-21 · Read this first in a new session.
+**Last updated:** 2026-08-23 · Read this first in a new session.
+**Repo:** https://github.com/Dumku-13/f1-dashboard (private, `main`)
 
 Related docs (read as needed, don't duplicate them here):
 
-**The two plans** — both approved by the user, both preserved:
+- `README.md` — the collaborator's entry point: how to run it, the verification
+  gate, and the working agreements. Points back here for depth.
 - `f1-dashboard/FEATURES_PLAN.md` — features + performance. **All 12 phases DONE.**
-  Keeps the feasibility reasoning (what FastF1 can and can't support) and the phase table.
+  Keeps the feasibility reasoning (what FastF1 can and can't support).
 - `f1-dashboard/frontend/FRONTEND_REDESIGN.md` — the editorial/cinematic redesign.
-  **Approved but PARKED, not started.** Full spec: dual-mode palette, hero, scroll scenes.
+  **All 16 phases DONE (2026-08-23).** Each phase is written up with what was
+  learned, including directions that were tried and rejected. Read it before
+  proposing design changes.
 
 **Conventions**
-- `f1-dashboard/frontend/DESIGN.md` — the current "PIT WALL" UI contract (what's built today)
+- `f1-dashboard/frontend/DESIGN.md` — the "PIT WALL" UI contract
 - `f1-dashboard/frontend/AGENTS.md` — Next.js version warning + repo conventions
 
 ---
@@ -845,8 +849,8 @@ Each is a fixed bug. Re-check after any refactor of these files.
 | `scripts/encode-hero-frames.mjs` | the sequence stops at **frame 110**. From ~115 the source bakes in garbled part labels (`SAT WUND`, `RONE VOICE`, duplicate `ENGINE`/`REAR WING`). Frame 110 is already fully exploded and wordless. Never extend the range to "get the labels". |
 | `HeroFrameScrub.tsx` | frame loading waits for `window.load`. 3.9 MB fetched eagerly would repeat the landing-page bug where a 22 MB clip starved every API call. |
 | `HeroFrameScrub.tsx` | the canvas sizes from its **own `getBoundingClientRect` via `ResizeObserver`**, not `window.innerWidth`. The window is 7px wider once a scrollbar exists (stretching every frame), and at mount it can report 0 — which left the canvas 0x0 with no resize event ever coming to fix it. |
-| `prototype/hero` | scene 02 is **`200svh` with sticky copy**. The explode spans 3 viewports of *scroll* and scroll distance is one viewport less than page height, so at `100svh` the car stopped at frame 95 and never finished. |
-| `prototype/hero` | scroll-linked opacity/transform sits under `.hero-scrub-active`, added only by the scrubber. Base CSS leaves every scene visible, so no-JS or reduced-motion renders a readable page instead of blank sections waiting on a variable that never arrives. |
+| `app/page.tsx` (landing) | scene 02 is **`200svh` with sticky copy**. The explode spans 3 viewports of *scroll* and scroll distance is one viewport less than page height, so at `100svh` the car stopped at frame 95 and never finished. |
+| `app/page.tsx` (landing) | scroll-linked opacity/transform sits under `.hero-scrub-active`, added only by the scrubber. Base CSS leaves every scene visible, so no-JS or reduced-motion renders a readable page instead of blank sections waiting on a variable that never arrives. |
 | `GlassDockNav.tsx` | an explicit collapse (persisted under `f1.dock.collapsed`) **outranks** scroll auto-hide — scrolling up must not undo a deliberate hide. `data-dock-hidden` mirrors the state because the slide is a transform. |
 | `app/page.tsx` | the ink scenes are **translucent** (0.60, news 0.70) over a 0.22 backdrop wash so the exploded car reads through them. Measured against real frame pixels: the car spans 66 luminance levels and the smallest 10px label still clears 4.5:1. Making them solid again hides the entire point of the sequence. |
 | `app/page.tsx` | `.hp-label` is `opacity: 0.72` on ink and `0.6` on cream. 0.6 over the translucent scenes drops 10px labels to 3.3:1. |
@@ -887,40 +891,72 @@ Each is a fixed bug. Re-check after any refactor of these files.
 
 ## 7b. NEXT SESSION — start here
 
-**1. Put this on git and share it with a collaborator.** Nothing is version
-controlled yet — `git status` fails, there is no `.git` anywhere in the project.
-Before the first push:
+**State as of 2026-08-23.** All 16 redesign phases are complete and the project
+is on GitHub. Nothing below is blocked on code — it is verification and process.
 
-- `.gitignore` must cover `node_modules/`, `.next/`, `f1-dashboard/backend/cache/`
-  (fastf1's cache is **hundreds of MB** of race data), `backend/cache/api/`,
-  `.env.local`, `__pycache__/`, and `.hero-frames-tmp/`.
-- **Check for secrets before the first commit, not after.** `frontend/.env.local`
-  holds `NEXT_PUBLIC_MAPBOX_TOKEN`; the backend env may hold `GEMINI_API_KEY` /
-  `ANTHROPIC_API_KEY` / `NEWSAPI_KEY`. A key committed once stays in history even
-  if deleted in the next commit — it has to be absent from the *first* one.
-- Decide what to do with the generated assets: `public/hero/` (110 frames,
-  3.9 MB) and `public/drivers/` (22 photos, 0.82 MB) are both **rebuildable**
-  from `hero video frames/` and `driver pics/` via the scripts in
-  `frontend/scripts/`. Committing the sources plus the scripts is smaller and
-  cleaner than committing the outputs; committing the outputs makes a fresh
-  clone work without ffmpeg. Ask which they want.
-- A collaborator needs: Python deps for the backend, `npm install`, and the note
-  that **the backend must be running or every page is empty** (section 2).
+### Done, don't redo
 
-**2. Race day is 2026-08-23 — mobile has to hold up.** Phase 13 covered layout
-and touch targets; what has *not* been exercised is a real phone on a real
-network during a live session. Watch specifically: the frame-scrub landing page
-on mobile data, `/live` and `/follow` under a running session, and the dock's
-auto-hide while scrolling a live tower.
+- **The redesign is finished.** Phases 01-16, written up in
+  `f1-dashboard/frontend/FRONTEND_REDESIGN.md` with what was learned in each.
+  Read that before proposing design changes — several directions were tried and
+  explicitly rejected (notably the cream editorial ground).
+- **Git is set up and pushed.** Private repo at
+  **https://github.com/Dumku-13/f1-dashboard**, branch `main`, 514 files, 70 MB.
+  `.gitignore` excludes `node_modules`, `.next`, and fastf1's ~3.1 GB
+  `backend/cache/`. Secrets were scanned for before the first commit and none
+  were present — `.env.local` holds only two `NEXT_PUBLIC_*` URLs and the
+  backend reads its API keys from the shell, not a file.
+- **`README.md`** is the collaborator's entry point and points at this file as
+  the source of truth.
+
+### To do
+
+1. **Add the collaborator.** The repo is private and has no collaborators yet.
+   Needs their GitHub username:
+   `gh repo add-collaborator Dumku-13/f1-dashboard <username> --permission push`
+   (`gh` lives at `/c/Program Files/GitHub CLI`, not on PATH by default;
+   authenticated as **Dumku-13**.)
+
+2. **Race-day check on a real phone.** This is the one thing that could not be
+   done from here. Phase 13 fixed layout and touch targets by measurement, but
+   a real device on a real network during a live session has never been
+   exercised. Watch: the frame-scrub landing page on mobile data (it drops to
+   every 3rd frame under 768px, ~1.3 MB), `/live` and `/follow` under a running
+   session, and the dock's auto-hide while scrolling a live tower.
+
+3. **Confirm driver-photo lazy loading on a cold cache.** All 22 carry
+   `loading="lazy"` and fetch counts track viewport height the way they should
+   (22 fetched at 812px tall, 0 at 400px), but this environment cannot settle
+   it — the browser pane never composites, so the intersection logic never runs
+   and "0 fetched" is equally explained by that. Thirty seconds in a real
+   browser with DevTools → Network, cache disabled, scrolling `/drivers`.
+
+4. **Housekeeping when convenient:**
+   - `f1-dashboard/frontend/.git.disabled-create-next-app` is the old
+     create-next-app history, moved aside because git was treating the frontend
+     as a **submodule** and would have cloned it empty. Gitignored and harmless;
+     delete once you are sure nothing was in it (it held one auto-generated
+     commit).
+   - Consider branch-per-change + PRs now that two people are on `main`. There
+     is no branch protection.
+
+### Process note for two people
+
+`HANDOFF.md` is the shared brain, and section 6 (INVARIANTS) is the part that
+matters most: ~65 rows, each one a bug already fixed once, with the reason. Both
+collaborators appending to it is what stops one person re-breaking what the
+other repaired. Add a row whenever you fix something whose cause wasn't obvious.
 
 ## 8. Open items
 
 **Blocked on the user**
 - **Mapbox token** → `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local`. Only thing gating
-  the satellite schedule view; it degrades to SVG track outlines meanwhile.
+  the satellite schedule view; it degrades to traced SVG circuit outlines meanwhile.
 - *Optional:* `NEWSAPI_KEY` in the backend env for richer news images. Works fully without.
+- *Optional:* `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` for the AI race engineer. Without one it
+  answers from the same live context with the rule-based fallback.
 
-**Known / deliberate**
+**Known / deliberate — do not "fix" these**
 - Two files still use raw `fetch` on purpose: `history/page.tsx` (multi-step aggregation, not
   a keyed GET) and `paddock/page.tsx` chat polling (`after_id` delta-cursor; SWR replaces the
   whole dataset each poll, which would break accumulation).
@@ -931,27 +967,16 @@ auto-hide while scrolling a live tower.
   nav to change.
 - The pit-stop metric stays **"Pit Lane Time Loss"** (~22s). If a future session "fixes" it
   towards the famous ~2s figure, that is a regression into fabricated data.
+- The **cream editorial ground was built, sampled and rejected** on sight. The app is dark
+  everywhere except the landing page's own cream band. Don't re-propose it.
+- The spec's five driver tabs (FORM · PACE · TELEMETRY · STRATEGY · HISTORY) are **not** built.
+  Only Season and Career have data behind them; adding the rest would mean inventing sections.
 
-**Waiting on a look, not on work**
-- `/prototype/hero` is now a **four-scene scrolling page** — hero, anatomy, next race
-  (Black/Cream gate), latest news — over a scroll-scrubbed 110-frame sequence of the car
-  coming apart. Built by `scripts/encode-hero-frames.mjs` from `hero video frames/` at the
-  repo root; re-run it if the source changes. Section 4b of `FRONTEND_REDESIGN.md` has the
-  details, including why the sequence stops at frame 110.
-- **Follow Along was removed from the dock's direct icons** (still in the Racing group, the
-  home Explore card, and the home CTA). The dock now auto-hides on scroll down and has a
-  chevron collapse that persists.
-- `FRONTEND_REDESIGN.md` — **Phase 04 is built: `/prototype/hero`.** The black hero as specced,
-  with Scene 02 underneath on a Black/Cream toggle so the parked palette question can be settled
-  by comparing them in place. Phase 05 is the hard stop: if the hero reads as mediocre it gets
-  fixed before anything else migrates. Nothing in it touches the shipped app — separate route,
-  component-scoped CSS, `/` still live to compare against. Six findings that change the spec
-  (the `d1` scale needs a height term; the hero can't live inside `<main>`; animations must run
-  *from* the hidden state; `priority` is deprecated in Next 16; Archivo needs its `wdth` axis
-  requested; only 4 of 8 driver photos are hero-scale) are written up at the bottom of that doc.
-- Phases 06–16 remain unstarted and gated behind 05.
-
----
+**Verified as far as this environment allows**
+- Driver-photo lazy loading: attribute present on all 22, behaviour consistent with lazy, but
+  unprovable here (the browser pane never composites). See §7b item 3.
+- Reduced motion: both guards are in place and resolve, but the OS setting can't be toggled
+  from here, so the reduced path has never been seen rendered.
 
 ## 9. File map
 
