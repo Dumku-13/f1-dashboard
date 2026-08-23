@@ -492,3 +492,111 @@ off the critical path and settles into its own tab; the hero renders immediately
    logic lazy loading depends on never runs, and "0 fetched" is equally
    explained by that. Confirm in a real browser with the cache disabled.
 
+
+## Phase 17 — The mobile version (2026-08-23) — IN PROGRESS
+
+Phase 13 made the app *fit* a phone. This phase is about making it *readable*
+on one, which turned out to be a different problem with a different cause.
+
+**The finding that framed everything.** The app had exactly **one** width-based
+media query in 823 lines of `globals.css` — `@media (max-width: 900px)`,
+covering `.live-grid` and `.map-grid` — against **2,814 inline `style={{}}`
+props. A media query cannot reach an inline style.** So every route rendered at
+desktop density on a phone and nothing looked broken, because nothing
+overflowed. Measured at 375px:
+
+| Route | h-overflow | sideways-scrolling panes | text under 12px |
+|---|---|---|---|
+| `/standings` | 0px | 7 | **341** |
+| `/live` | 0px | 12 | **178** |
+| `/dashboard` | 0px | 4 | 56 |
+| `/follow` | 0px | 0 | 31 |
+
+Fitting and reading are not the same measurement. Phase 16 checked the first
+and reported success honestly; the second had never been taken.
+
+### What was built
+
+**`lib/breakpoint.ts`** — one `matchMedia` store behind `useSyncExternalStore`,
+the same shape as `useLiveStatus`, so the dock, the layout and every panel share
+one subscription. `phone` < 768 ≤ `tablet` < 1120 ≤ `desktop`. Three thresholds
+already existed and disagreed (768 in `HeroFrameScrub`, 700 in `battlestation`,
+900 in `globals.css`); this is now the one to prefer.
+
+**The nav swap is CSS, not the hook.** The hook's server snapshot is `desktop`
+and resolves a frame late — correct for hydration, wrong for anything that would
+visibly flash. `.phone-only` / `.desktop-only` are right at first paint.
+
+**`MobileTabBar`** replaces the dock under 768px. The dock is a desktop
+instrument squeezed onto a phone: measured at 375px it held **426px of content
+in a 351px rail**, so reaching a nav item meant scrolling the bar sideways
+first, and it auto-hides on scroll — which would take the navigation away while
+you scroll a live tower. Five fixed tabs (Home · Live · Follow · Table · More),
+75px each, 58px tall, no scroll. More opens a sheet with all 27 destinations
+read from the **shared** `navRoutes.ts` the dock also reads.
+
+**The phone type floor.** 319 inline declarations sit at 7–11px, plus 31
+fractional ones at 9.5/10.5/11.5. Attribute selectors reach them —
+the same mechanism the existing `[style*="Space Grotesk"]` remap uses.
+
+Two traps, both found by measuring rather than reading:
+- **Both serialisations are required.** React's SSR markup writes
+  `font-size:11px`; a style touched through the CSSOM re-serialises as
+  `font-size: 11px`. On `/dashboard` that was 18 elements vs 15 — a rule for
+  either form alone fixes about half the page.
+- **The last 53 weren't inline at all.** 31 were recharts `<tspan>` ticks, 21
+  `.f1-table th` at 0.72rem, 1 `.kicker`. recharts writes its size as an SVG
+  *presentation attribute*, which any CSS rule outranks — but the class is
+  `.recharts-text`, not `.recharts-cartesian-axis-tick` (a `<g>` two levels up).
+
+**The `/live` tower, reflowed.** `TOWER_GRID` needs 782px of minimum track;
+measured, that was 806px of content in a 334px box. Reading P4's gap meant
+dragging the tower sideways with your thumb, mid-race — the exact one-handed
+case `/live` exists for. The phone tower is five columns (POS · DRIVER · GAP ·
+INT · TYRE) and **drops nothing**: lap times, laps, pit count and mini-sectors
+move to a full-width second line per row via `gridColumn: '1 / -1'`. The
+mini-sectors come out ahead — the whole row width (~310px) instead of the 174px
+minimum they're squeezed into on desktop.
+
+**Wide tables get an anchor, not a truncation.** A 23-round season matrix is
+genuinely wider than a phone and scrolling it sideways is the right gesture;
+what was missing is knowing whose row you're on at R7. `.f1-table--anchored`
+pins POS and DRIVER. The POS column's width had to be **pinned to 40px** —
+its `th` declares 46px but the `td` padding resolves the column to 53px, so an
+offset assumed from the `th` left DRIVER sliding 7px before it caught. Verified
+by scrolling 350px and measuring: the R1 header moved 122 → −228 while POS and
+DRIVER held at 17 and 57.
+
+### Measured result
+
+| Route | text under 12px | sideways panes | h-overflow |
+|---|---|---|---|
+| `/live` | 178 → **0** | 12 → **4** | 0 |
+| `/standings` | 341 → **0** | 7 → **5** | 0 |
+| `/dashboard` | 56 → **0** | 4 → **1** | 0 |
+| `/follow` | 31 → **0** | 0 → **0** | 0 |
+
+Desktop is unchanged — re-measured at 1280px, the sub-12px counts are still
+56/196/342 and the tower still renders all ten columns with team names.
+
+### Deliberate trades, not oversights
+
+- **The team name is hidden in the phone tower and the phone standings table.**
+  At 375px it got a 47px box and rendered as "Red B…", which is noise. The team
+  colour bar already identifies the team. This is why `/standings` reports fewer
+  characters on a phone than on desktop — it is a choice, not lost data.
+- **The `/dashboard` standings ticker still scrolls sideways.** It is a ticker;
+  that is the intent.
+
+### Resume here
+
+Scope so far was the race-day four. Still open:
+1. **The landing page `/`** — the frame-scrub explode has never been checked
+   against touch momentum scrolling, which behaves nothing like a wheel.
+2. **The browse routes** — `/drivers`, `/results`, `/schedule`, `/circuits`,
+   `/teams` get the type floor and the tab bar for free, but have not been
+   measured or reflowed.
+3. **The remaining 32 routes** inherit the foundation but none are audited.
+4. **A real phone.** Still the one thing this environment cannot do, and the
+   tab bar's safe-area insets are exactly the kind of thing that only shows up
+   on a device with a home indicator.

@@ -821,3 +821,145 @@ body::after {
 h1.section-title, h2.section-title, h3.section-title, h4.section-title {
   margin: 0;
 }
+
+/* ============================================================================
+   MOBILE — the responsive layer (2026-08-23)
+
+   Until now this file had exactly ONE width-based media query (the 900px
+   `.live-grid` / `.map-grid` rule above) against ~2,800 inline `style={{}}`
+   props, which a media query cannot reach. Every route therefore fit on a
+   phone and rendered at desktop density: measured at 375px, `/standings` had
+   341 text nodes below 12px and `/live` 12 sideways-scrolling panes.
+
+   The thresholds here MUST stay in step with `lib/breakpoint.ts` (PHONE_MAX
+   767, TABLET_MAX 1119). CSS owns anything that would otherwise flash, because
+   the hook's server snapshot is `desktop` and resolves one frame late.
+   ========================================================================= */
+
+/* --- Nav swap, done in CSS so it never flashes the wrong bar -------------- */
+.phone-only { display: none; }
+
+@media (max-width: 767px) {
+  .phone-only { display: revert; }
+  .desktop-only { display: none !important; }
+}
+
+/* --- Phone type floor ----------------------------------------------------
+   Inline font sizes below 12px, lifted to 12px on phones only. 319 inline
+   declarations sit at 7-11px app-wide (11px alone accounts for 159), and each
+   is unreachable by a normal rule — hence the attribute selectors, the same
+   mechanism the `[style*="Space Grotesk"]` remap above already uses.
+
+   BOTH serialisations are required and this is the trap: React's SSR markup
+   writes `font-size:11px` while a style touched through the CSSOM re-serialises
+   as `font-size: 11px`. On `/dashboard` alone that is 18 elements matching the
+   first form and 15 the second, so a rule written for either one on its own
+   silently fixes about half the page.
+
+   This raises legibility, not layout. A cramped table with bigger text is
+   still a cramped table — the dense race-day panels are reflowed properly in
+   their own components via `useBreakpoint()`. */
+@media (max-width: 767px) {
+  [style*="font-size:7px"],    [style*="font-size: 7px"],
+  [style*="font-size:8px"],    [style*="font-size: 8px"],
+  [style*="font-size:9px"],    [style*="font-size: 9px"],
+  [style*="font-size:10px"],   [style*="font-size: 10px"],
+  [style*="font-size:11px"],   [style*="font-size: 11px"],
+  /* Fractional sizes are a real pattern here, not a typo: 31 declarations sit
+     at 9.5/10.5/11.5px (`/telemetry` alone holds most of them), and an
+     integer-only rule leaves every one of them behind. */
+  [style*="font-size:9.5px"],  [style*="font-size: 9.5px"],
+  [style*="font-size:10.5px"], [style*="font-size: 10.5px"],
+  [style*="font-size:11.5px"], [style*="font-size: 11.5px"] {
+    font-size: 12px !important;
+  }
+
+  /* Tracking that reads as deliberate at 9px reads as broken at 12px, and
+     these micro-labels are almost all uppercase kickers. */
+  .kicker, .section-title {
+    letter-spacing: 0.12em;
+  }
+
+  /* The rest of the sub-12px text comes from CLASSES, not inline styles, so
+     the attribute selectors above can't see it. Measured on `/standings`,
+     which had the worst count in the app: of the 53 that survived the inline
+     pass, 31 were recharts `<tspan>` axis ticks, 21 were `.f1-table th` and
+     its spans at 0.72rem (11.52px), and 1 was `.kicker` itself. */
+  .kicker { font-size: 12px; }
+
+  .f1-table th {
+    font-size: 12px;
+    /* 0.12em of tracking on a 12px uppercase header is what pushes a narrow
+       table into its horizontal scroller; the header text is the widest thing
+       in most of these columns. */
+    letter-spacing: 0.06em;
+    padding: 8px 9px;
+  }
+
+  /* --- Wide tables get an anchor instead of a truncation -----------------
+     A 23-round season matrix is genuinely wider than a phone, and squeezing it
+     into the screen would mean dropping rounds. Scrolling sideways is the right
+     gesture for wide data; what it needs is for POS and DRIVER to stay put, so
+     the row you're reading stays identified at R7 the way it is at R1.
+
+     The offsets are hard numbers because `position: sticky` needs a resolved
+     `left` — the POS column is fixed at 46px by the table's own `th` width, and
+     the second column pins immediately after it. Both need an opaque background
+     or the scrolled round columns show straight through them. */
+  .f1-table--anchored th:nth-child(1),
+  .f1-table--anchored th:nth-child(2) {
+    position: sticky;
+    z-index: 3;
+    background: #101114;
+  }
+  .f1-table--anchored td:nth-child(1),
+  .f1-table--anchored td:nth-child(2) {
+    position: sticky;
+    z-index: 2;
+    background: var(--card);
+  }
+  /* The POS column's width has to be PINNED, not assumed. Its `th` declares
+     46px but the `td` carries 12px of padding either side, so the column
+     resolves to whatever the widest cell needs — measured at 53px, which left
+     the DRIVER column sliding 7px before it caught. Fixing the width makes the
+     `left` offset below exact. 40px holds a two-digit position plus a movement
+     chevron; the crown only ever appears on P1, which is one digit. */
+  .f1-table--anchored th:nth-child(1),
+  .f1-table--anchored td:nth-child(1) {
+    left: 0;
+    width: 40px;
+    min-width: 40px;
+    max-width: 40px;
+    padding-left: 6px;
+    padding-right: 2px;
+    overflow: hidden;
+  }
+  .f1-table--anchored th:nth-child(2),
+  .f1-table--anchored td:nth-child(2) { left: 40px; }
+
+  /* The seam between the pinned pair and the scrolling matrix. */
+  .f1-table--anchored th:nth-child(2),
+  .f1-table--anchored td:nth-child(2) {
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+
+  /* recharts writes its tick size as an SVG PRESENTATION ATTRIBUTE
+     (`<text font-size="11">`), not as a style. Presentation attributes sit
+     below every CSS rule in the cascade, so a plain class selector beats one
+     without needing `!important` — but it has to be the right class:
+     the element carries `recharts-text recharts-cartesian-axis-tick-value`,
+     NOT `recharts-cartesian-axis-tick`, which is on a `<g>` two levels up.
+     `.recharts-text` covers ticks, labels and legend in one. */
+  .recharts-text,
+  .recharts-text tspan,
+  .recharts-legend-item-text {
+    font-size: 12px;
+  }
+}
+
+/* --- Safe areas ----------------------------------------------------------
+   The bottom tab bar sits over the iOS home indicator and Android gesture pill
+   without this. `viewport-fit=cover` in the layout's meta is what makes the
+   `env()` values non-zero. */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
