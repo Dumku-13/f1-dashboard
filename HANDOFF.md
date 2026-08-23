@@ -788,6 +788,8 @@ Each is a fixed bug. Re-check after any refactor of these files.
 | `lib/live.ts` | `miniSectors` / `speeds` / `teamRadio` are **empty on the OpenF1 source**; every consumer must degrade, not assume F1 data |
 | `routers/livetiming.py` | `"TeamRadio"` must stay in `TOPICS`, and clip URLs need `SessionInfo.Path` — the capture `Path` alone is not playable |
 | `routers/analysis.py` | `benchmarks` `track_record` is scan-bounded, not all-time; keep `seasons_scanned` + `note` in the payload |
+| `.gitignore` | `f1-dashboard/backend/*.db` — the seven runtime SQLite files are **not** tracked. Nothing seeds them: every owning router calls `_init()` at import and every table is `CREATE TABLE IF NOT EXISTS`, so a missing file is recreated empty on the next start. Re-adding them means binary merge conflicts on files the app rewrites on every run. |
+| `routers/quiz.py` | the daily questions are **generated in Python** from live standings, not stored — `quiz.db` only ever holds `attempts`. Don't "restore" a questions table. |
 | `routers/analysis.py` | `_fastest_lap_at` re-checks the matched event's circuit — `fastf1.get_session(y, location, …)` fuzzy-matches the whole calendar and can silently land on a different circuit |
 | `app/live/page.tsx` | tower rows use `layout="position"` + `initial={false}` — restoring `layoutId` or a per-row entry `delay` brings back rows stuck at opacity 0 mid-resort |
 | `app/live/page.tsx` | the grid is tuned to fit 840px with **zero** overflow; widening a column hides PIT/TYRE again |
@@ -948,6 +950,32 @@ collaborators appending to it is what stops one person re-breaking what the
 other repaired. Add a row whenever you fix something whose cause wasn't obvious.
 
 ## 8. Open items
+
+**Runtime databases are no longer in git (2026-08-23)**
+
+All **seven** backend SQLite files were tracked — not just the two that showed
+up dirty (`popularity.db`, `quiz.db`); the others simply hadn't been exercised.
+Starting the backend rewrote them, so they were swept into unrelated commits,
+and a binary file is the worst thing to hit a merge conflict on now that the
+repo has branch-per-change and a second contributor.
+
+They are now gitignored and `git rm --cached`'d. **Verified by moving all seven
+aside and restarting**: each came back with its correct schema and zero rows
+(community 4 tables, feed 5, fantasy 2, predictor 2, users 2, popularity 1,
+quiz 1), and after restoring the real data a genuine write (`POST
+/api/popularity/event`, 37 → 38 rows) left `git status` clean.
+
+Nothing seeds them. The quiz's questions are generated in Python from live
+standings — `quiz.db` only held `attempts`, so there was no seed table to
+preserve.
+
+⚠️ **`users.db` was among them, and it holds `password_hash`, `salt` and live
+session `token`s.** Untracking stops new commits carrying it, but **the existing
+history still contains it**, and that history is about to be shared with a
+collaborator. Worth deciding on before the invite goes out: rotate the affected
+credentials, or rewrite history (`git filter-repo`) — the latter is disruptive
+and rewrites every commit hash, so it is much cheaper now, with two branches and
+one contributor, than later.
 
 **Blocked on the user**
 - **Mapbox token** → `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local`. Only thing gating
