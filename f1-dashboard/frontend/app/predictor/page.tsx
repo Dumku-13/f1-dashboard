@@ -10,6 +10,7 @@ import { unlockAchievement, checkPredictionAchievements } from '@/lib/achievemen
 import { logPulse } from '@/lib/pulse'
 import { useApi, useApiList } from '@/lib/api/client'
 import { useStandings } from '@/lib/api/hooks'
+import KalshiOdds from '@/components/predictor/KalshiOdds'
 import type { DriverStanding } from '@/lib/types'
 
 const YEAR = 2026
@@ -447,8 +448,11 @@ export default function PredictorPage() {
             )}
           </div>
 
-          {/* Sidebar: leaderboard + past rounds */}
+          {/* Sidebar: market odds + leaderboard + past rounds */}
           <div style={{ display: 'grid', gap: '16px' }}>
+            {/* Sits above the leaderboard deliberately: everything else on this
+                page is what *you* predicted, and this is what the market did. */}
+            <KalshiOdds year={YEAR} standings={standings?.drivers} />
             <div className="glass-card" style={{ padding: '18px' }}>
               <h2 className="section-title" style={{ marginBottom: '12px' }}>
                 <Trophy size={13} style={{ marginRight: '-2px' }} /> Season leaderboard

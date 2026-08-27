@@ -797,6 +797,14 @@ Each is a fixed bug. Re-check after any refactor of these files.
 | `MobileTabBar.tsx` | the bar carries **no entry animation**. framer-motion never advances in the hidden browser pane, so an `initial={{ opacity: 0 }}` here leaves the app with no navigation at all under verification. |
 | `components/layout/navRoutes.ts` | the route map has **one** definition, read by both the dock and the tab bar. Two copies drift silently — the route keeps working, it just stops being reachable from one bar. |
 | `TimingTower.tsx` | the phone tower drops the sideways scroller (`overflowX: visible`, `minWidth: 0`); leaving `fit-content` on the inner box lets a long driver name widen the tower past the screen again |
+| `routers/kalshi.py` | prices are read from the **`*_dollars` string fields**. The integer `last_price` / `yes_bid` fields come back `null` on these markets, so reading those makes an actively traded market (8.0M volume) look completely dead — it did, for an hour. |
+| `routers/kalshi.py` | **a fresh `AsyncClient` per call.** Reusing the connection gets the second request closed by the remote host (`WinError 10054`); fresh connections succeeded 6/6. |
+| `routers/kalshi.py` | reads `api.elections.kalshi.com` (public, no auth) and **never** `trading-api.kalshi.com` (401, and it places orders). Don't "fix" this by adding credentials. |
+| `routers/kalshi.py` | `_normalize_name` strips generational suffixes before taking the surname — Kalshi lists "Carlos Sainz Jr." and a naive last-token split keys him as `jr`, which matched nothing (21/22 drivers resolved, he was the one that didn't) |
+| `KalshiOdds.tsx` | the panel states that the prices sum to ~118%, not 100. These are independent binary markets and are not meant to sum to 1 — presenting them as a normalised set would be wrong, and hiding the total makes the panel look broken to anyone who adds it up. |
+| `SessionClock.tsx` | seeded `null` and set in an effect — a clock rendered on the server is a guaranteed hydration mismatch (same trade `CountdownTimer` makes) |
+| `.gitignore` | `f1-dashboard/backend/*.db` — the seven runtime SQLite files are **not** tracked. Nothing seeds them: every owning router calls `_init()` at import and every table is `CREATE TABLE IF NOT EXISTS`, so a missing file is recreated empty on the next start. Re-adding them means binary merge conflicts on files the app rewrites on every run. |
+| `routers/quiz.py` | the daily questions are **generated in Python** from live standings, not stored — `quiz.db` only ever holds `attempts`. Don't "restore" a questions table. |
 | `routers/analysis.py` | `_fastest_lap_at` re-checks the matched event's circuit — `fastf1.get_session(y, location, …)` fuzzy-matches the whole calendar and can silently land on a different circuit |
 | `app/live/page.tsx` | tower rows use `layout="position"` + `initial={false}` — restoring `layoutId` or a per-row entry `delay` brings back rows stuck at opacity 0 mid-resort |
 | `app/live/page.tsx` | the grid is tuned to fit 840px with **zero** overflow; widening a column hides PIT/TYRE again |
@@ -975,6 +983,60 @@ collaborators appending to it is what stops one person re-breaking what the
 other repaired. Add a row whenever you fix something whose cause wasn't obvious.
 
 ## 8. Open items
+
+**Runtime databases are no longer in git (2026-08-23)**
+
+All **seven** backend SQLite files were tracked — not just the two that showed
+up dirty (`popularity.db`, `quiz.db`); the others simply hadn't been exercised.
+Starting the backend rewrote them, so they were swept into unrelated commits,
+and a binary file is the worst thing to hit a merge conflict on now that the
+repo has branch-per-change and a second contributor.
+
+They are now gitignored and `git rm --cached`'d. **Verified by moving all seven
+aside and restarting**: each came back with its correct schema and zero rows
+(community 4 tables, feed 5, fantasy 2, predictor 2, users 2, popularity 1,
+quiz 1), and after restoring the real data a genuine write (`POST
+/api/popularity/event`, 37 → 38 rows) left `git status` clean.
+
+Nothing seeds them. The quiz's questions are generated in Python from live
+standings — `quiz.db` only held `attempts`, so there was no seed table to
+preserve.
+
+⚠️ **`users.db` was among them, and it holds `password_hash`, `salt` and live
+session `token`s.** Untracking stops new commits carrying it, but **the existing
+history still contains it**, and that history is about to be shared with a
+collaborator. Worth deciding on before the invite goes out: rotate the affected
+credentials, or rewrite history (`git filter-repo`) — the latter is disruptive
+and rewrites every commit hash, so it is much cheaper now, with two branches and
+one contributor, than later.
+
+**The spec in `new updates for the dashbaord/` is now fully delivered (2026-08-23)**
+
+That file listed three asks. Audited each rather than assuming:
+
+1. **Follow Along / Race Engineering / AI chat / per-driver alerts** — already
+   shipped (`/follow`, `/race-engineer`, `/engineer`, `lib/alerts.ts`). **One
+   sub-item was missing**: "in live section I need a timer on how much the
+   session is left and next thing ka time". `CountdownTimer` existed but is only
+   mounted on the dashboard, landing and race pages, and it counts down to a
+   *start*. New `components/live/SessionClock.tsx` on `/live` shows time to the
+   chequered flag with a % elapsed bar while a session runs, and the next
+   calendar session with its countdown when nothing is running.
+2. **Kalshi** — was **not** built. Now done, see below.
+3. **Season switch, 3 seasons** — already shipped (`SEASONS = [2026, 2025, 2024]`
+   in `lib/season.tsx`, picker used on 10+ pages).
+
+**Kalshi needs NO API key — the earlier conclusion was wrong.** A previous
+session tested `trading-api.kalshi.com`, got 401, and recorded "needs
+credentials" (in a chat log only, never in this file). That host is for *placing
+orders*. Market **data** comes from `api.elections.kalshi.com`, which is public
+and returns 200 unauthenticated.
+
+`GET /api/kalshi/championship?year=2026` → the `KXF1-26` event, one binary
+market per driver, 22 of them, live prices and ~8.0M volume. Rendered on
+`/predictor` as the Market Odds panel: Antonelli 77%, Hamilton 8%, Norris 7%
+at time of writing — and Antonelli does lead the championship, which is a decent
+sanity check on the join.
 
 **Blocked on the user**
 - **Mapbox token** → `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local`. Only thing gating

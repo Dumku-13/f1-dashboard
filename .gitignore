@@ -65,3 +65,22 @@ desktop.ini
 .idea/
 *.swp
 f1-dashboard/frontend/.git.disabled-create-next-app/
+
+# ---------------------------------------------------------------------------
+# Runtime SQLite databases (backend)
+#
+# These are state the running app writes, not source. Every one of the seven
+# was tracked, so simply starting the backend marked popularity.db and quiz.db
+# modified and swept them into unrelated commits — and a binary file is the
+# worst possible thing to hit a merge conflict on once more than one person is
+# committing.
+#
+# Nothing seeds them. Each owning router calls `_init()` at import time and
+# every table is `CREATE TABLE IF NOT EXISTS`, so a missing file is recreated
+# empty on the next backend start. The quiz's questions are generated in
+# Python from live standings; `quiz.db` only ever held `attempts`.
+#
+# users.db additionally holds password hashes, salts and live session tokens,
+# which should not have been in version control at all.
+# ---------------------------------------------------------------------------
+f1-dashboard/backend/*.db
