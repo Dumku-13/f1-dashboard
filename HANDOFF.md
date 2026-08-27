@@ -788,6 +788,15 @@ Each is a fixed bug. Re-check after any refactor of these files.
 | `lib/live.ts` | `miniSectors` / `speeds` / `teamRadio` are **empty on the OpenF1 source**; every consumer must degrade, not assume F1 data |
 | `routers/livetiming.py` | `"TeamRadio"` must stay in `TOPICS`, and clip URLs need `SessionInfo.Path` — the capture `Path` alone is not playable |
 | `routers/analysis.py` | `benchmarks` `track_record` is scan-bounded, not all-time; keep `seasons_scanned` + `note` in the payload |
+| `lib/breakpoint.ts` | the server snapshot is **`desktop`** and must stay a constant — returning a measured value on the server is a hydration mismatch, and the app renders the root layout on the server despite `'use client'` |
+| `globals.css` | the phone type floor matches **both** `font-size:11px` and `font-size: 11px` — React's SSR markup writes the first, a style touched through the CSSOM re-serialises as the second. On `/dashboard` alone that was 18 elements vs 15, so a rule for either form on its own fixes about half the page. |
+| `globals.css` | the phone type floor also covers **fractional** sizes (9.5/10.5/11.5px) — 31 declarations sit there, most of `/telemetry`, and an integer-only rule leaves every one behind |
+| `globals.css` | recharts tick text is targeted via **`.recharts-text`**, not `.recharts-cartesian-axis-tick` (which is a `<g>` two levels up). The size is an SVG *presentation attribute*, so any CSS rule beats it — but only if the selector matches. |
+| `globals.css` | `.f1-table--anchored` pins the POS column to a **fixed 40px width**. Its `th` declares 46px but the `td` padding widens the column to 53px, so a `left` offset assumed from the `th` left the DRIVER column sliding 7px before it caught. |
+| `MobileTabBar.tsx` | the nav swap is **CSS** (`.phone-only`/`.desktop-only`), never `useBreakpoint()` — the hook resolves a frame late, which flashes the wrong bar on every cold load |
+| `MobileTabBar.tsx` | the bar carries **no entry animation**. framer-motion never advances in the hidden browser pane, so an `initial={{ opacity: 0 }}` here leaves the app with no navigation at all under verification. |
+| `components/layout/navRoutes.ts` | the route map has **one** definition, read by both the dock and the tab bar. Two copies drift silently — the route keeps working, it just stops being reachable from one bar. |
+| `TimingTower.tsx` | the phone tower drops the sideways scroller (`overflowX: visible`, `minWidth: 0`); leaving `fit-content` on the inner box lets a long driver name widen the tower past the screen again |
 | `routers/kalshi.py` | prices are read from the **`*_dollars` string fields**. The integer `last_price` / `yes_bid` fields come back `null` on these markets, so reading those makes an actively traded market (8.0M volume) look completely dead — it did, for an hour. |
 | `routers/kalshi.py` | **a fresh `AsyncClient` per call.** Reusing the connection gets the second request closed by the remote host (`WinError 10054`); fresh connections succeeded 6/6. |
 | `routers/kalshi.py` | reads `api.elections.kalshi.com` (public, no auth) and **never** `trading-api.kalshi.com` (401, and it places orders). Don't "fix" this by adding credentials. |
@@ -900,11 +909,13 @@ Each is a fixed bug. Re-check after any refactor of these files.
 ## 7b. NEXT SESSION — start here
 
 **State as of 2026-08-23.** All 16 redesign phases are complete and the project
-is on GitHub. Nothing below is blocked on code — it is verification and process.
+is on GitHub. **Phase 17 — the mobile version — is now in progress and is real
+code**, unlike the rest of this section, which is verification and process.
 
 ### Done, don't redo
 
-- **The redesign is finished.** Phases 01-16, written up in
+- **The redesign is finished** (Phases 01-16). Phase 17, the mobile
+  version, is a *new* phase and is in progress — see item 2 below. Written up in
   `f1-dashboard/frontend/FRONTEND_REDESIGN.md` with what was learned in each.
   Read that before proposing design changes — several directions were tried and
   explicitly rejected (notably the cream editorial ground).
@@ -925,21 +936,37 @@ is on GitHub. Nothing below is blocked on code — it is verification and proces
    (`gh` lives at `/c/Program Files/GitHub CLI`, not on PATH by default;
    authenticated as **Dumku-13**.)
 
-2. **Race-day check on a real phone.** This is the one thing that could not be
-   done from here. Phase 13 fixed layout and touch targets by measurement, but
-   a real device on a real network during a live session has never been
-   exercised. Watch: the frame-scrub landing page on mobile data (it drops to
-   every 3rd frame under 768px, ~1.3 MB), `/live` and `/follow` under a running
-   session, and the dock's auto-hide while scrolling a live tower.
+2. **The mobile version — Phase 17 is under way.** See
+   `frontend/FRONTEND_REDESIGN.md` Phase 17 for the full writeup. The
+   foundation is in (`lib/breakpoint.ts`, the phone type floor, and
+   `MobileTabBar` replacing the dock under 768px) and the **race-day four**
+   — `/live`, `/follow`, `/dashboard`, `/standings` — now measure **zero text
+   under 12px and zero horizontal overflow at 375px**, with the `/live` tower
+   reflowed to five columns plus a second line instead of an 806px sideways
+   scroll. Desktop re-measured unchanged.
 
-3. **Confirm driver-photo lazy loading on a cold cache.** All 22 carry
+   Still to do: the landing page `/` against touch momentum scrolling, the
+   browse routes (`/drivers`, `/results`, `/schedule`, `/circuits`, `/teams`),
+   and the other 32 routes, which inherit the foundation but are unaudited.
+
+   The dock's auto-hide is no longer a race-day concern on a phone — the tab
+   bar that replaces it is fixed and does not hide on scroll.
+
+3. **Race-day check on a real phone.** Still the one thing that could not be
+   done from here, and Phase 17 adds to the list: the tab bar's
+   `env(safe-area-inset-bottom)` padding only proves itself on a device with a
+   home indicator. Watch also: the frame-scrub landing page on mobile data (it
+   drops to every 3rd frame under 768px, ~1.3 MB), and `/live` and `/follow`
+   under a running session.
+
+4. **Confirm driver-photo lazy loading on a cold cache.** All 22 carry
    `loading="lazy"` and fetch counts track viewport height the way they should
    (22 fetched at 812px tall, 0 at 400px), but this environment cannot settle
    it — the browser pane never composites, so the intersection logic never runs
    and "0 fetched" is equally explained by that. Thirty seconds in a real
    browser with DevTools → Network, cache disabled, scrolling `/drivers`.
 
-4. **Housekeeping when convenient:**
+5. **Housekeeping when convenient:**
    - `f1-dashboard/frontend/.git.disabled-create-next-app` is the old
      create-next-app history, moved aside because git was treating the frontend
      as a **submodule** and would have cloned it empty. Gitignored and harmless;

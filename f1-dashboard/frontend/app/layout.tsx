@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { MotionConfig } from 'framer-motion'
 import GlassDockNav from '@/components/layout/GlassDockNav'
+import MobileTabBar from '@/components/layout/MobileTabBar'
 import HomeButton from '@/components/layout/HomeButton'
 import LiveNowPill from '@/components/layout/LiveNowPill'
 import ThemeApplier from '@/components/layout/ThemeApplier'
@@ -67,7 +68,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="h-full dark">
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* `viewport-fit=cover` lets the page use the full screen on a notched
+            phone, and is what makes the `env(safe-area-inset-*)` values the
+            mobile tab bar reads non-zero. Without it they resolve to 0 and the
+            bar sits under the home indicator. */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <title>F1 2026 Dashboard</title>
         <meta name="description" content="Formula 1 2026 season dashboard — live timing, standings, analytics" />
         <link rel="manifest" href="/manifest.json" />
@@ -113,7 +118,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main id="main" style={{ paddingTop: bare ? '0' : '56px', paddingBottom: bare ? '0' : '120px' }}>
           {children}
         </main>
-        {!bare && <GlassDockNav />}
+        {/* Two navigation bars, one visible at a time, chosen by CSS rather
+            than by a hook — see MobileTabBar's header for why the swap can't
+            be JS-driven without flashing the wrong bar on every cold load. */}
+        {!bare && <div className="desktop-only"><GlassDockNav /></div>}
+        {!bare && <MobileTabBar />}
         {!bare && <BackendOfflineBanner />}
         <div className="grain-overlay" aria-hidden />
         </MotionConfig>
