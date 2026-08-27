@@ -93,7 +93,14 @@ export default function LivePage() {
   }, [status, session?.session_name]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px 16px', position: 'relative', zIndex: 1 }}>
+    // No max width. DESIGN.md's shell rule names 1560px, and this page went
+    // 1400 -> 1800 -> uncapped because every fixed number still left a band of
+    // dead space on a wide monitor. `/live` is the one page where that is
+    // clearly right: it is two columns of live data, and both the tower and the
+    // map get better with every pixel. Padding, not a cap, keeps it off the
+    // edges. Other routes keep the DESIGN.md cap — don't sweep this across them
+    // without checking each one actually has something to do with the width.
+    <div style={{ width: '100%', margin: '0 auto', padding: '24px clamp(16px, 1.6vw, 34px)', position: 'relative', zIndex: 1 }}>
 
       {/* Phase 11: in-app alert toasts (top-left; achievements own top-right) */}
       <AlertToaster />
@@ -209,10 +216,16 @@ export default function LivePage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: expanded ? 'minmax(0, 1fr)' : 'minmax(0, 2.2fr) minmax(260px, 1fr)',
+          // Collapsed, the tower now shows three fixed sector columns instead
+          // of the greedy `2.1fr` mini-sector bars, so it needs less room —
+          // and the rail gets it. 2.2/1 -> 1.55/1 with a 330px floor makes the
+          // track map about a quarter wider, which is what makes the driver
+          // labels on it readable.
+          gridTemplateColumns: expanded ? 'minmax(0, 1fr)' : 'minmax(0, 1.55fr) minmax(330px, 1fr)',
           gap: '16px', alignItems: 'start',
         }}
         className="live-grid"
+        data-expanded={expanded ? 'true' : 'false'}
       >
         {/* Timing tower */}
         <div className="glass-card" style={{ overflow: 'hidden' }}>
@@ -267,17 +280,28 @@ export default function LivePage() {
             view={view}
             qualifying={qualifying}
             emptyMessage={status === 'loading' ? 'Connecting to timing feed…' : 'Waiting for cars on track…'}
+            expanded={expanded}
           />
         </div>
 
-        {!expanded && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* The rail stays mounted when the tower expands — it moves BELOW
+            instead of vanishing. Expanding used to unmount all four panels, so
+            the map, benchmarks, race control and radio disappeared to read one
+            extra column of timing, and the map then refetched its outline on
+            the way back.
+
+            The parent grid is a single column while expanded, so this lands
+            under the tower on its own; the only change needed is the internal
+            layout — a vertical stack in a narrow rail, a responsive row across
+            the full width. */}
+        <div style={expanded
+          ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', alignItems: 'start' }
+          : { display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <TrackMap rows={rows} live={status === 'live'} trackStatus={trackStatus} />
           <BenchmarksPanel session={session} rows={rows} />
           <RaceControlFeed items={raceControl} />
           <TeamRadioPanel clips={live.teamRadio} rows={rows} />
         </div>
-        )}
       </div>
 
       {/* Say which source is actually feeding the tower — they differ in what

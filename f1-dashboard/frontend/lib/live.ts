@@ -968,7 +968,16 @@ function useLiveSessionRaw(): EngineState {
         // The bridge is the richer source, but its `Position` feed has been
         // arriving empty (see `fetchOpenF1CarPositions`). Everything else in
         // the payload is still good, so only the dots fall back.
-        if (!hasCarPositions(data.feeds?.Position)) {
+        //
+        // Gated on the session actually running. `data.active` stays true for a
+        // session that has finished — the bridge keeps serving its final state,
+        // which is what the page shows off-weekend — so without this check the
+        // fallback fired every 4s poll forever and OpenF1 answered 404 ("no
+        // results") each time. That is a request per poll, indefinitely, for
+        // cars that are not on track: the exact pattern that earned this app a
+        // 429 before.
+        const sessionRunning = !!f1Meta && sessionIsLive(f1Meta)
+        if (sessionRunning && !hasCarPositions(data.feeds?.Position)) {
           const fallback = await fetchOpenF1CarPositions()
           if (cancelled) return
           if (Object.keys(fallback).length) {

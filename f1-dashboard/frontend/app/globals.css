@@ -332,6 +332,25 @@ h1, h2, h3, h4, h5, .font-display {
 .live-grid > *,
 .map-grid > * { min-width: 0; }
 
+/* Between 900px and 1500px the tower's own columns need more room than a
+   1.55fr share gives them — at 1280 the timing tower ran 104px past its track
+   and its `overflow-x: auto` wrapper started scrolling, so TYRE sat off-screen.
+   The map has a sensible floor, so below 1500 the rail takes exactly that and
+   the tower gets everything else.
+
+   The ceiling is 1500, not 1400: at 1440 the 1.55fr share still left the tower
+   16px short, so the boundary has to sit above the first width where the
+   flexible split actually fits.
+
+   `:not([data-expanded="true"])` matters: expanded renders ONE child (no rail),
+   and forcing two columns there would leave the tower in a two-thirds column
+   beside an empty one. */
+@media (min-width: 901px) and (max-width: 1500px) {
+  .live-grid:not([data-expanded='true']) {
+    grid-template-columns: minmax(0, 1fr) 300px !important;
+  }
+}
+
 @media (max-width: 900px) {
   .live-grid,
   /* .map-grid had no rule at all — the class was applied in app/map but
