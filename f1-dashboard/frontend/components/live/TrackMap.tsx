@@ -15,35 +15,26 @@ import { BACKEND_URL } from '@/lib/constants'
 import { hexColor } from '@/lib/utils'
 import type { TowerRow } from '@/lib/live'
 import { mapEmphasis, mapPaintRank } from '@/lib/battle'
+import { VIEW_W, VIEW_H, CAR_RADIUS, boundsOf, makeProject, centroidOf, pitLaneSlots } from './pitLane'
+import { useIsPhone } from '@/lib/breakpoint'
 
-const VIEW_W = 400
-const VIEW_H = 300
-const PAD = 22
+/** A numbered turn, in the same fastf1 space as the outline. */
+interface Corner { x: number; y: number; number: number; letter?: string }
 
-interface Bounds { minX: number; maxX: number; minY: number; maxY: number }
-
-function boundsOf(points: [number, number][]): Bounds | null {
-  if (points.length < 2) return null
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-  points.forEach(([x, y]) => {
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-    if (y < minY) minY = y
-    if (y > maxY) maxY = y
-  })
-  if (maxX - minX < 1 || maxY - minY < 1) return null
-  return { minX, maxX, minY, maxY }
-}
-
-function makeProject(b: Bounds) {
-  const scale = Math.min((VIEW_W - PAD * 2) / (b.maxX - b.minX), (VIEW_H - PAD * 2) / (b.maxY - b.minY))
-  const ox = (VIEW_W - (b.maxX - b.minX) * scale) / 2
-  const oy = (VIEW_H - (b.maxY - b.minY) * scale) / 2
-  // SVG y grows downward; track coords grow upward — flip Y
-  return (x: number, y: number): [number, number] => [
-    ox + (x - b.minX) * scale,
-    VIEW_H - (oy + (y - b.minY) * scale),
-  ]
+/**
+ * Black or white text for a team colour, by luminance.
+ *
+ * The codes go inside the bubbles now, and the grid runs from Ferrari red to
+ * Haas white — a fixed light fill would vanish on the pale liveries and a fixed
+ * dark one on the deep blues. sRGB relative luminance, 0.6 threshold.
+ */
+function readableOn(hex: string): string {
+  const h = hex.replace('#', '')
+  if (h.length < 6) return '#FFFFFF'
+  const r = parseInt(h.slice(0, 2), 16) / 255
+  const g = parseInt(h.slice(2, 4), 16) / 255
+  const b = parseInt(h.slice(4, 6), 16) / 255
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.6 ? '#0B0C0E' : '#FFFFFF'
 }
 
 const STATUS_TINTS: Record<string, string> = {
@@ -66,7 +57,9 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
   /** Acronyms kept at full strength alongside the focused car (their battle). */
   highlight?: string[]
 }) {
+  const phone = useIsPhone()
   const [outline, setOutline] = useState<[number, number][]>([])
+  const [corners, setCorners] = useState<Corner[]>([])
   const trailRef = useRef<[number, number][]>([])
 
   useEffect(() => {
@@ -74,7 +67,13 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
     fetch(`${BACKEND_URL}/api/livetiming/track`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
-        if (!cancelled && Array.isArray(d?.points) && d.points.length > 10) setOutline(d.points)
+        if (cancelled) return
+        if (Array.isArray(d?.points) && d.points.length > 10) setOutline(d.points)
+        // Corners arrive from the same call now. They can legitimately be
+        // absent (fastf1 has no circuit_info for some rounds), and the map is
+        // expected to still draw — turn numbers are an addition, not a
+        // dependency.
+        if (Array.isArray(d?.corners)) setCorners(d.corners)
       })
       .catch(() => null)
     return () => { cancelled = true }
@@ -143,6 +142,23 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
             const path = shape.length > 10
               ? `M ${shape.map(([x, y]) => project(x, y).map(v => v.toFixed(1)).join(',')).join(' L ')}${outline.length > 10 ? ' Z' : ''}`
               : null
+            // Projected outline, reused by the corner labels and the idle
+            // grid so all three sit in exactly the same space.
+            const projShape: [number, number][] = shape.length > 10
+              ? shape.map(([x, y]) => project(x, y))
+              : []
+            const centre = projShape.length ? centroidOf(projShape) : [VIEW_W / 2, VIEW_H / 2] as [number, number]
+
+            // Off-session: queue the classified field along the start straight.
+            const idle = dots.length === 0 && rows.length > 0 && projShape.length > 10
+            const grid = idle
+              ? pitLaneSlots(
+                  projShape,
+                  Math.min(rows.length, 22),
+                  [centre[0] - projShape[0][0], centre[1] - projShape[0][1]],
+                )
+              : []
+
             return (
               <>
                 {path && (
@@ -151,6 +167,66 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
                     <path d={path} fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
                   </>
                 )}
+
+                {/* Turn numbers. Pushed away from the circuit centre so a label
+                    never sits on the racing line it belongs to. */}
+                {corners.map(c => {
+                  const [px, py] = project(c.x, c.y)
+                  const dx = px - centre[0], dy = py - centre[1]
+                  const len = Math.hypot(dx, dy) || 1
+                  const lx = px + (dx / len) * 11
+                  const ly = py + (dy / len) * 11
+                  return (
+                    <g key={`${c.number}${c.letter || ''}`}>
+                      <circle cx={px} cy={py} r={1.6} fill="rgba(255,255,255,0.45)" />
+                      <text
+                        x={lx}
+                        y={ly}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        style={{
+                          // The whole SVG scales down with its container, so a
+                          // size that reads on a 590px desktop map renders at
+                          // ~6.4px on a 375px phone — under the phone type floor
+                          // the mobile pass established, and simply unreadable.
+                          fontSize: phone ? '11px' : '7.5px',
+                          fontWeight: 700, fill: 'rgba(255,255,255,0.62)',
+                          fontFamily: 'Space Grotesk, monospace',
+                          paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.75)', strokeWidth: 2.5,
+                        }}
+                      >
+                        {c.number}{c.letter}
+                      </text>
+                    </g>
+                  )
+                })}
+
+                {/* Idle grid — the field parked along the straight, in
+                    classification order. Rendered without the motion wrapper
+                    that the live dots use: nothing here is moving, and
+                    animating it would imply it was. */}
+                {grid.map((slot, i) => {
+                  const row = rows[i]
+                  if (!row) return null
+                  const colour = hexColor(row.driver.team_colour) || '#888'
+                  return (
+                    <g key={`grid-${row.driver.driver_number}`} transform={`translate(${slot[0]},${slot[1]})`} opacity={0.9}>
+                      <circle r={CAR_RADIUS} fill={colour} stroke="rgba(0,0,0,0.75)" strokeWidth={1.2} />
+                      <text
+                        y={0.5}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        style={{
+                          fontSize: '8px', fontWeight: 800, fill: readableOn(colour),
+                          fontFamily: 'Space Grotesk, monospace',
+                          letterSpacing: '-0.02em', pointerEvents: 'none',
+                        }}
+                      >
+                        {row.driver.name_acronym}
+                      </text>
+                    </g>
+                  )
+                })}
                 {ordered.map(row => {
                   const [cx, cy] = project(row.pos!.x, row.pos!.y)
                   const color = hexColor(row.driver.team_colour) || '#888'
@@ -169,17 +245,29 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
                       transition={{ type: 'tween', ease: 'linear', duration: 0.9 }}
                       opacity={dimmed ? 0.26 : 1}
                     >
+                      {/* Broadcast-style chip: the driver's code sits INSIDE
+                          the bubble. Floating it above meant two nearby cars
+                          put two labels on top of each other, and the label was
+                          the only readable part of a 6px dot. */}
                       <circle
-                        r={dimmed ? 3.5 : isFocus ? 7 : isLeader ? 6 : 5}
+                        r={dimmed ? CAR_RADIUS * 0.62 : isFocus ? CAR_RADIUS * 1.15 : CAR_RADIUS}
                         fill={color}
-                        stroke={isFocus ? '#FFFFFF' : isLeader ? '#FFD700' : 'rgba(0,0,0,0.6)'}
-                        strokeWidth={isFocus ? 2.5 : isLeader ? 2 : 1}
+                        stroke={isFocus ? '#FFFFFF' : isLeader ? '#FFD700' : 'rgba(0,0,0,0.75)'}
+                        strokeWidth={isFocus ? 2.5 : isLeader ? 2 : 1.2}
                       />
                       {!dimmed && (
                         <text
-                          y={isFocus ? -11 : -9}
+                          y={0.5}
                           textAnchor="middle"
-                          style={{ fontSize: isFocus ? '9.5px' : '8px', fontWeight: 800, fill: isFocus ? '#FFFFFF' : '#E5E7EB', fontFamily: 'Space Grotesk, monospace', paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.8)', strokeWidth: 2 }}
+                          dominantBaseline="middle"
+                          style={{
+                            fontSize: isFocus ? '9px' : '8px',
+                            fontWeight: 800,
+                            fill: readableOn(color),
+                            fontFamily: 'Space Grotesk, monospace',
+                            letterSpacing: '-0.02em',
+                            pointerEvents: 'none',
+                          }}
                         >
                           {abbr}
                         </text>
@@ -197,9 +285,15 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
             {live ? 'Waiting for car position data…' : 'Cars appear here when a session is live.'}
           </div>
         )}
+        {/* The parked field must never be mistaken for live positions. This
+            caption is the only thing separating "here is the grid" from
+            "here is where the cars are", so it stays whenever the dots are
+            stand-ins rather than measurements. */}
         {bounds && dots.length === 0 && (
           <div style={{ position: 'absolute', bottom: '10px', left: 0, right: 0, textAlign: 'center', fontSize: '11px', color: 'var(--muted)' }}>
-            Cars appear when a session is live
+            {rows.length > 0
+              ? 'Pit lane — final classification, not live positions'
+              : 'Cars appear when a session is live'}
           </div>
         )}
       </div>

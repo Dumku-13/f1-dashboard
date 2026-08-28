@@ -53,6 +53,17 @@ IDLE_STOP_S = 300  # stop the feed when nobody has polled /state for this long
 
 _lock = threading.Lock()
 _state: dict = {"feeds": {}, "connected": False, "last_message": 0.0, "error": None}
+# Per-topic frame counters + the last Position decode error.
+#
+# These exist because car x/y silently never arrived. The captured fixture
+# (fixtures/livetiming-sprintquali-zandvoort-2026.json) shows all six snapshots
+# with connected=True, error=None, every other feed populated, and
+# Position=None — and `_apply_position` swallowed whatever went wrong, so there
+# was no way to tell "frames never arrived" from "every frame failed to
+# decode". Those two have completely different fixes. `/state` now reports the
+# counts so one glance at a live session settles it.
+_diag: dict = {"frames": {}, "position_errors": 0, "position_last_error": None,
+               "position_applied": 0}
 _thread: threading.Thread | None = None
 _last_poll: float = 0.0
 
@@ -91,9 +102,11 @@ def _apply_position(payload):
             payload = json.loads(zlib.decompress(base64.b64decode(payload), -zlib.MAX_WBITS))
         samples = payload.get("Position", []) if isinstance(payload, dict) else []
         if not samples:
+            _note_position_error("decoded frame carried no 'Position' samples")
             return
         latest = samples[-1].get("Entries", {})
         if not isinstance(latest, dict):
+            _note_position_error(f"'Entries' was {type(latest).__name__}, not a dict")
             return
         with _lock:
             cur = _state["feeds"].setdefault("Position", {})
@@ -104,12 +117,29 @@ def _apply_position(payload):
                         "Y": entry.get("Y"),
                         "Status": entry.get("Status"),
                     }
+            _diag["position_applied"] += 1
             _state["last_message"] = time.time()
-    except Exception:  # noqa: BLE001 — a bad frame must not kill the feed
-        pass
+    except Exception as exc:  # noqa: BLE001 — a bad frame must not kill the feed
+        # Still must not kill the feed, but it must no longer be invisible.
+        _note_position_error(f"{type(exc).__name__}: {exc}"[:180])
+
+
+def _count_frame(topic: str) -> None:
+    """One counter per topic. A zero next to `Position.z` after a live session
+    means F1 never sent it; a high count beside `position_errors` means it
+    arrived and the decode is at fault."""
+    with _lock:
+        _diag["frames"][topic] = _diag["frames"].get(topic, 0) + 1
+
+
+def _note_position_error(msg: str) -> None:
+    with _lock:
+        _diag["position_errors"] += 1
+        _diag["position_last_error"] = msg
 
 
 def _apply_snapshot(topic: str, payload):
+    _count_frame(topic)
     if topic == "Position.z":
         _apply_position(payload)
         return
@@ -121,6 +151,7 @@ def _apply_snapshot(topic: str, payload):
 
 
 def _apply_patch(topic: str, payload):
+    _count_frame(topic)
     if topic == "Position.z":
         _apply_position(payload)
         return
@@ -294,6 +325,12 @@ async def live_state():
         connected = _state["connected"]
         error = _state["error"]
         last_msg = _state["last_message"]
+        diag = {
+            "frames": dict(_diag["frames"]),
+            "position_applied": _diag["position_applied"],
+            "position_errors": _diag["position_errors"],
+            "position_last_error": _diag["position_last_error"],
+        }
 
     timing = feeds.get("TimingData") or {}
     active = bool(connected and isinstance(timing, dict) and timing.get("Lines"))
@@ -302,6 +339,7 @@ async def live_state():
         "connected": connected,
         "error": error,
         "last_message_age_s": round(time.time() - last_msg, 1) if last_msg else None,
+        "diag": diag,
         "feeds": feeds,
     }
 
@@ -419,83 +457,112 @@ def _build_outline(year: int, rnd: int, name: str) -> dict:
 
 @router.get("/track")
 async def track_outline():
-    """Outline (x/y points) of the current / most recent race weekend."""
+    """Geometry of the current / most recent race weekend, for the `/live`
+    mini-map.
+
+    Now returns `corners` and `rotation` alongside the outline. It used to send
+    points only, which is the whole reason the mini-map had no turn numbers
+    while the full map on `/map` did — same circuit, same session, different
+    endpoint. Corner extraction can fail on its own (fastf1 circuit_info is not
+    always present), and when it does this still returns the outline, so the map
+    degrades to what it drew before rather than going blank.
+    """
 
     def _build():
         year, rnd, name = _resolve_current_round()
         if rnd is None:
-            return {"points": [], "error": "season not started"}
-        return _build_outline(year, rnd, name)
+            return {"points": [], "corners": [], "rotation": 0.0, "error": "season not started"}
+        details = _build_track_details(year, rnd)
+        if details.get("points"):
+            return {
+                "round": rnd,
+                "name": details.get("name") or name,
+                "points": details["points"],
+                "corners": details.get("corners", []),
+                "rotation": details.get("rotation", 0.0),
+            }
+        # Details came back empty — fall back to the plain outline builder,
+        # which has its own cache and may still have the shape.
+        outline = _build_outline(year, rnd, name)
+        outline.setdefault("corners", [])
+        outline.setdefault("rotation", 0.0)
+        return outline
 
     return await asyncio.to_thread(_build)
+
+
+def _build_track_details(year: int, round: int) -> dict:
+    """Outline + corners + marshal sectors + rotation for one round.
+
+    Module-level rather than nested so `/track` can serve corner numbers for the
+    current weekend too — the mini-map on `/live` used to get points only, which
+    is why it had no turn numbers while the big map on `/map` did.
+    """
+    ck = f"{year}-{round}"
+    if ck in _details_cache:
+        return _details_cache[ck]
+    # Same backoff as the outline: don't re-attempt a recently-failed load.
+    if _track_negcache.get(ck, 0) > time.time():
+        return {"year": year, "round": round, "name": "", "points": [],
+                "corners": [], "marshal_sectors": [], "rotation": 0.0}
+
+    # Reuse the outline builder + its cache. Also grab the session so we can
+    # pull circuit_info from the same fastf1 load.
+    session, lap = _load_track_session(year, round)
+    # Prefer the session's own event name; fall back to the outline cache.
+    name = _track_cache.get(ck, {}).get("name", "")
+    if session is not None:
+        try:
+            name = str(session.event.get("EventName", "") or name)
+        except Exception:  # noqa: BLE001
+            pass
+    outline = _build_outline(year, round, name)
+
+    result = {
+        "year": year,
+        "round": round,
+        "name": name,
+        "points": outline.get("points", []),
+        "corners": [],
+        "marshal_sectors": [],
+        "rotation": 0.0,
+    }
+
+    if session is not None:
+        try:
+            ci = session.get_circuit_info()
+            if ci is not None:
+                result["rotation"] = float(getattr(ci, "rotation", 0.0) or 0.0)
+                corners = getattr(ci, "corners", None)
+                if corners is not None and len(corners) > 0:
+                    for _, c in corners.iterrows():
+                        result["corners"].append({
+                            "x": float(c.get("X", 0.0)),
+                            "y": float(c.get("Y", 0.0)),
+                            "number": int(c.get("Number", 0)),
+                            "letter": str(c.get("Letter", "") or ""),
+                            "distance": float(c.get("Distance", 0.0) or 0.0),
+                        })
+                marshals = getattr(ci, "marshal_sectors", None)
+                if marshals is not None and len(marshals) > 0:
+                    for _, m in marshals.iterrows():
+                        result["marshal_sectors"].append({
+                            "x": float(m.get("X", 0.0)),
+                            "y": float(m.get("Y", 0.0)),
+                            "number": int(m.get("Number", 0)),
+                        })
+        except Exception:  # noqa: BLE001 — circuit_info unavailable; outline still works
+            pass
+
+    # Only cache once we have real outline data (mirrors outline caching)
+    if result["points"]:
+        _details_cache[ck] = result
+    return result
 
 
 @router.get("/track/{year}/{round}/details")
 async def track_details(year: int, round: int):
-    """Full circuit geometry for the interactive map: outline + corners +
-    marshal sectors + rotation. Coordinates stay in fastf1's 1/10-metre space
-    (same as pos_data / Position.z) — the frontend normalizes and rotates."""
-
-    def _build():
-        ck = f"{year}-{round}"
-        if ck in _details_cache:
-            return _details_cache[ck]
-        # Same backoff as the outline: don't re-attempt a recently-failed load.
-        if _track_negcache.get(ck, 0) > time.time():
-            return {"year": year, "round": round, "name": "", "points": [],
-                    "corners": [], "marshal_sectors": [], "rotation": 0.0}
-
-        # Reuse the outline builder + its cache. Also grab the session so we can
-        # pull circuit_info from the same fastf1 load.
-        session, lap = _load_track_session(year, round)
-        # Prefer the session's own event name; fall back to the outline cache.
-        name = _track_cache.get(ck, {}).get("name", "")
-        if session is not None:
-            try:
-                name = str(session.event.get("EventName", "") or name)
-            except Exception:  # noqa: BLE001
-                pass
-        outline = _build_outline(year, round, name)
-
-        result = {
-            "year": year,
-            "round": round,
-            "name": name,
-            "points": outline.get("points", []),
-            "corners": [],
-            "marshal_sectors": [],
-            "rotation": 0.0,
-        }
-
-        if session is not None:
-            try:
-                ci = session.get_circuit_info()
-                if ci is not None:
-                    result["rotation"] = float(getattr(ci, "rotation", 0.0) or 0.0)
-                    corners = getattr(ci, "corners", None)
-                    if corners is not None and len(corners) > 0:
-                        for _, c in corners.iterrows():
-                            result["corners"].append({
-                                "x": float(c.get("X", 0.0)),
-                                "y": float(c.get("Y", 0.0)),
-                                "number": int(c.get("Number", 0)),
-                                "letter": str(c.get("Letter", "") or ""),
-                                "distance": float(c.get("Distance", 0.0) or 0.0),
-                            })
-                    marshals = getattr(ci, "marshal_sectors", None)
-                    if marshals is not None and len(marshals) > 0:
-                        for _, m in marshals.iterrows():
-                            result["marshal_sectors"].append({
-                                "x": float(m.get("X", 0.0)),
-                                "y": float(m.get("Y", 0.0)),
-                                "number": int(m.get("Number", 0)),
-                            })
-            except Exception:  # noqa: BLE001 — circuit_info unavailable; outline still works
-                pass
-
-        # Only cache once we have real outline data (mirrors outline caching)
-        if result["points"]:
-            _details_cache[ck] = result
-        return result
-
-    return await asyncio.to_thread(_build)
+    """Full circuit geometry for the interactive map. Coordinates stay in
+    fastf1's 1/10-metre space (same as pos_data / Position.z) — the frontend
+    normalizes and rotates."""
+    return await asyncio.to_thread(_build_track_details, year, round)

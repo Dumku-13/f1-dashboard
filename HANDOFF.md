@@ -93,6 +93,8 @@ node scripts/battle-gaps.test.mjs        # Follow Along gaps + gap-trend maturin
 node scripts/driver-story.test.mjs       # Follow Along event derivation from snapshot diffs
 node scripts/lap-trace.test.mjs          # telemetry join: speed onto position, corner lookup
 node scripts/telemetry-delta.test.mjs    # lap time delta: interpolation, sign, shorter-lap clipping
+node scripts/car-positions.test.mjs      # track-map dots: newest fix per car, (0,0) no-fix, on-outline check
+node scripts/pit-lane.test.mjs           # idle grid placement: in-viewBox, no overlap, even spacing
 ```
 
 There is no test runner; these use `jiti` (already a dependency) to import the real TypeScript, so
@@ -805,6 +807,29 @@ Each is a fixed bug. Re-check after any refactor of these files.
 | `SessionClock.tsx` | seeded `null` and set in an effect — a clock rendered on the server is a guaranteed hydration mismatch (same trade `CountdownTimer` makes) |
 | `.gitignore` | `f1-dashboard/backend/*.db` — the seven runtime SQLite files are **not** tracked. Nothing seeds them: every owning router calls `_init()` at import and every table is `CREATE TABLE IF NOT EXISTS`, so a missing file is recreated empty on the next start. Re-adding them means binary merge conflicts on files the app rewrites on every run. |
 | `routers/quiz.py` | the daily questions are **generated in Python** from live standings, not stored — `quiz.db` only ever holds `attempts`. Don't "restore" a questions table. |
+| `app/live/page.tsx` | **`/live` has no max-width** — deliberately, unlike every other route. DESIGN.md's 1560px cap still applies elsewhere; this page is two columns of live data where both halves improve with every pixel. Don't sweep the uncapped shell across other routes without checking each has something to do with the space. |
+| `TimingTower.tsx` | **every** collapsed column carries an `fr` share, not just DRIVER. As the only flexible track, DRIVER absorbed all the slack once the cap came off — measured 760px wide at 2560px, with a canyon between the name and the gap. |
+| `TimingTower.tsx` | the TYRE column's floor is **68px**, sized for `"S 24L (+7)"`. At 56px the used-set suffix clipped by 6px on six rows once the type was scaled up — real data silently cut off. |
+| `app/live/page.tsx` | EXPAND **moves** the rail below the tower, it does not unmount it. The panels used to be behind `{!expanded && …}`, so expanding threw away the map, benchmarks, race control and radio to gain one column of timing — and the map refetched its outline on the way back. |
+| `globals.css` | the `901–1400px` `.live-grid` rule is scoped `:not([data-expanded='true'])`. Expanded renders **one** child — no rail — so forcing two columns there would leave the tower in a two-thirds column beside an empty one. |
+| `TimingTower.tsx` | column widths and font sizes move **together**. The type was scaled up (sectors 11→13.5px, gaps 12→14px) and the fixed columns widened with it; raising one without the other clips the text or starts the wrapper scrolling. |
+| `app/live/page.tsx` | the shell is **1800px**, not 1400px. DESIGN.md's first rule is "fill the screen" and names a narrow column with dead space either side as the most common defect here; at 1400 a 1600px window had ~100px empty on each side. |
+| `TrackMap.tsx` | driver codes are drawn **inside** the bubble, not floating above it. Above, two nearby cars stacked two labels on each other and the label was the only readable part of a 6px dot. `readableOn()` picks black or white text by luminance so the code stays legible from Ferrari red to Haas white. |
+| `components/live/pitLane.ts` | the off-session queue is laid out in **screen space**, in columns — not by walking the outline. Two earlier versions failed on real geometry: following the trace put two cars 2.5px apart where Zandvoort curves, and a staggered line along the straight piled 22 bubbles into an unreadable diagonal clump. |
+| `lib/live.ts` | the OpenF1 position fallback only fires while `sessionIsLive(f1Meta)`. `data.active` stays true for a *finished* session, so without the gate it made one request per 4s poll forever and OpenF1 answered 404 each time — a request per poll for cars that aren't on track. |
+| `TimingTower.tsx` | mini-sectors render **only when `expanded`**. Their column is `minmax(174px, 2.1fr)` — it demands width *and* takes the largest share of anything spare, which is what kept the track map beside the tower too small to read driver labels on. Collapsed shows three fixed 58px sector columns instead. Putting the bars back in the collapsed view undoes the map. |
+| `components/live/pitLane.ts` | grid spacing is derived from **`CAR_RADIUS`**, and `pit-lane.test.mjs` asserts against that same constant. Enlarging the dots without the spacing following made the cars overlap — the two must move together. |
+| `routers/livetiming.py` | `/track` returns **corners + rotation**, not just points. The mini-map on `/live` had no turn numbers purely because it called this endpoint while `/map` called `/details` — same circuit, same session, different payload. |
+| `components/live/pitLane.ts` | the idle grid is a **straight staggered formation**, not a walk along the traced outline. Following the outline sounds right and isn't: Zandvoort curves near the line, so the queue doubled back and put two cars **2.5px apart** at r=5. `scripts/pit-lane.test.mjs` caught it. |
+| `components/live/pitLane.ts` | the finished grid is **clamped back inside the viewBox**. The start/finish line sits near the edge on plenty of circuits, and an off-viewBox car is invisible while still being in the DOM — the failure that looks like nothing at all. |
+| `components/live/pitLane.ts` | geometry lives in a **`.ts`** file, not in `TrackMap.tsx`, because jiti cannot parse JSX and this is logic that has to be checked numerically — screenshots fail in the agent pane, so "22 dots exist in the DOM" is the only other evidence available and it says nothing about *where* they were drawn |
+| `TrackMap.tsx` | the idle grid's caption says **"not live positions"**. It is the only thing separating "here is the grid" from "here is where the cars are" — without it the panel implies telemetry that does not exist. |
+| `routers/livetiming.py` | `_apply_position` **records** failures into `_diag` instead of swallowing them. The bare `except: pass` it replaced is what hid the track-map bug: "F1 never sent Position.z" and "every frame failed to decode" produced identical symptoms. |
+| `routers/livetiming.py` | `_count_frame` runs on **every** inbound topic, snapshot and patch alike — a topic missing from `diag.frames` is the evidence that F1 isn't sending it |
+| `lib/live.ts` | `selectLatestPositions` rejects a literal **(0,0)** — that is OpenF1's "no fix", and treating it as a coordinate parks every affected car in the same spot near the origin |
+| `lib/live.ts` | `selectLatestPositions` rejects **null** coordinates *before* `Number()` — `Number(null)` is `0`, not `NaN`, so a null passes the finite check and then survives the (0,0) check whenever the other axis has a value |
+| `lib/live.ts` | positions are fetched **once for all cars** (`/location` with no `driver_number`); per-driver requests would be 20 calls a tick, the exact pattern that earned an OpenF1 429 before |
+| `lib/live.ts` | OpenF1 positions are a **fallback**, only consulted when `hasCarPositions(feeds.Position)` is false — the bridge stays primary because it is richer and lower-latency |
 | `routers/analysis.py` | `_fastest_lap_at` re-checks the matched event's circuit — `fastf1.get_session(y, location, …)` fuzzy-matches the whole calendar and can silently land on a different circuit |
 | `app/live/page.tsx` | tower rows use `layout="position"` + `initial={false}` — restoring `layoutId` or a per-row entry `delay` brings back rows stuck at opacity 0 mid-resort |
 | `app/live/page.tsx` | the grid is tuned to fit 840px with **zero** overflow; widening a column hides PIT/TYRE again |
@@ -1037,6 +1062,150 @@ market per driver, 22 of them, live prices and ~8.0M volume. Rendered on
 `/predictor` as the Market Odds panel: Antonelli 77%, Hamilton 8%, Norris 7%
 at time of writing — and Antonelli does lead the championship, which is a decent
 sanity check on the join.
+**Track-map dots — root cause found (2026-08-23)**
+
+The dots never appeared during a live session. Everything in front of them was
+already correct: `mapF1Feeds` reads `feeds.Position`, `pos` flows onto
+`TowerRow`, `CircuitMap` rotates and projects it. The data was the problem.
+
+`/state` now carries a **`diag`** block, and it answers the question outright:
+
+```
+frames: {DriverList:1, SessionInfo:1, SessionStatus:1, TimingData:1,
+         TimingAppData:1, WeatherData:1, RaceControlMessages:1,
+         LapCount:1, TrackStatus:1, TeamRadio:1}
+position_applied: 0   position_errors: 0   position_last_error: None
+```
+
+**`Position.z` is absent from `frames` entirely.** Every other subscribed topic
+arrived; the compressed position topic never did. `position_errors: 0` rules out
+the decoder — which is fine, and has a check proving it handles a well-formed
+frame. So F1 is not sending `Position.z` to this client at all, and the old bare
+`except: pass` in `_apply_position` made "never arrived" and "every frame failed
+to decode" look identical. **Why F1 withholds it is still open** — that needs a
+live session to pursue.
+
+Meanwhile the dots are fed from **OpenF1 `/location`**, which the code
+previously claimed did not exist ("OpenF1 carries no car x/y" — it does).
+Critically it is in **the same coordinate space as the track outline**, so no
+transform is involved: verified against today's 2026 Dutch GP, where all 20 cars
+with a fix land on the traced Zandvoort outline, worst offset 122 units on a
+12,784-unit circuit (tolerance 639).
+
+**`/live` mini-map: turn numbers + an off-session grid (2026-08-23)**
+
+Three things, all on the `/live` rail map:
+
+- **Turn numbers.** `/api/livetiming/track` now returns `corners` and
+  `rotation`, not just points — the mini-map had no turn numbers only because it
+  called that endpoint while `/map` called `/track/{year}/{round}/details`. 14
+  corners for Zandvoort, which is right.
+- **Driver circles with TLAs** were already implemented; they were invisible
+  because the position feed was empty (see the track-map dots entry above).
+- **An off-session grid.** With no session running the map used to be an empty
+  outline. It now parks the classified field near the start/finish line in a
+  staggered two-column grid, team-coloured, TLA-labelled, in finishing order —
+  captioned "Pit lane — final classification, not live positions", which is the
+  only thing stopping it read as telemetry.
+
+**`/live` layout: sector times collapsed, mini-sectors expanded (2026-08-23)**
+
+The track map was too small to read driver names on, and the cause was the
+tower next to it. `TOWER_GRID`'s mini-sector column is `minmax(174px, 2.1fr)`:
+it demands width and then claims the biggest share of whatever is left.
+
+Collapsed now shows **S1 · S2 · S3** — the same colour-coded sector times, in
+fixed 58px columns that never grow — and the segmented mini-sector bars move
+behind **EXPAND**, which already meant "give the tower the whole page". The
+freed width goes to the rail: the page grid went `2.2fr / 1fr` to
+`1.55fr / minmax(330px, 1fr)`.
+
+Measured at 1440px: the rail went **412px → 530px**, the map **~412×309 →
+528×396**, and a driver's TLA label now renders at **12.5px on screen instead
+of ~8.2px**. At 1280px the tower still fits without sideways scroll (764px of
+content in a 764px box) and the page has zero horizontal overflow.
+
+`SectorCell` already existed in `TimingTower.tsx` and was dead code — it is
+what the collapsed columns render.
+
+**`/live` map + page width, second pass (2026-08-23)**
+
+The first pass at "make the map bigger" moved the numbers but not the
+experience — the map still read as small and the cars as an unreadable clump.
+Two separate causes:
+
+- **The page was capped at 1400px.** DESIGN.md says content-heavy pages fill the
+  screen and calls dead space either side the most common defect in this repo.
+  Now 1800px: at 1600px viewport the shell went from ~1400 to **1593px, leaving
+  4px per side instead of ~100**.
+- **The markers were 6px dots with the code floating above them.** Now
+  broadcast-style bubbles with the three-letter code **inside**, `CAR_RADIUS`
+  11 — measured at **33px across on screen with 11.8px text**, against ~12px
+  dots before.
+
+The map itself went **~412x309 -> 591x503** across the two passes.
+
+The off-session queue was rebuilt a third time. Walking the outline broke on
+Zandvoort's curve (two cars 2.5px apart); a staggered line along the straight
+piled everything into a diagonal clump once the bubbles grew. It is now columns
+in screen space, verified on rendered geometry: **33px bubbles, closest centres
+37px, 4px clearance, nothing overlapping**.
+
+Also fixed while here: the OpenF1 position fallback was firing every 4s poll
+off-season and taking a 404 each time, because the bridge reports `active: true`
+for a finished session. Gated on `sessionIsLive` — **0 requests over 10s**
+off-session now, down from one per poll.
+
+**`/live` tower type scale (2026-08-23)**
+
+The tower was rendering its data at 11–12px on a 1600px screen. Scaled up:
+position 15→17, driver code 14→15.5, team 11→12.5, gap/interval and lap times
+12→14, sector times **11→13.5**, laps/pit 11→13, headers 10→11.5, and row height
+40→49px. Columns widened to match.
+
+At 1280px the bigger type genuinely does not fit beside a 330px map — the
+tower's `overflow-x: auto` wrapper started scrolling 104px, putting TYRE
+off-screen. So between 901 and 1400px the rail drops to a fixed 300px and the
+tower takes the rest (906px at 1280, no scroll). **The cost is a smaller map on
+narrow desktops** — 298px at 1280 versus 591px at 1600. That is a deliberate
+trade: the tower is the data, the map is context.
+
+**EXPAND keeps the rail (2026-08-23)**
+
+Expanding the timing tower used to unmount the whole right-hand rail — map,
+benchmarks, race control, team radio all vanished so the tower could gain one
+column. Now the rail stays mounted and flows **below** the full-width tower: a
+vertical stack when it sits beside the tower, a responsive
+`repeat(auto-fit, minmax(320px, 1fr))` row when it sits under it.
+
+Verified at both widths — expanded, the rail sits under the tower at full width
+(1529px at 1600, 1222px at 1280) with all four panels present and zero page
+overflow. Keeping it mounted also stops `TrackMap` refetching its outline on
+every expand/collapse.
+
+**`/live` fills the window (2026-08-23)**
+
+The shell went 1400 -> 1800 -> **uncapped**. Every fixed number still left a
+band of dead space on a wide monitor, and this is the one page where filling is
+clearly right — both the tower and the map get better with width. Padding
+(`clamp(16px, 1.6vw, 34px)`) keeps it off the edges. **Other routes keep the
+DESIGN.md 1560px cap.**
+
+Two defects that only appeared once the cap came off, both found by measuring
+across widths rather than eyeballing one:
+
+- **DRIVER swallowed all the slack** — as the only flexible column it grew to
+  760px at 2560, leaving a canyon mid-row. Every column now carries an `fr`
+  share, so the row stays tabular: DRIVER is 205px at 2560, 117px at 1600.
+- **TYRE clipped the used-set suffix** by 6px on six rows once the type grew.
+  Floor raised 56px -> 68px, sized for `"S 24L (+7)"`.
+
+Also moved the narrow-desktop breakpoint 1400 -> **1500**: at 1440 the 1.55fr
+split still left the tower 16px short and its wrapper scrolled.
+
+Swept 1280 / 1366 / 1440 / 1500 / 1520 / 1600 / 1920 / 2560: **zero clipped
+cells, zero tower scroll, zero page overflow, 4px dead space per side** (the
+scrollbar) at every width. Map runs 298px at 1280 up to 966px at 2560.
 
 **Blocked on the user**
 - **Mapbox token** → `NEXT_PUBLIC_MAPBOX_TOKEN` in `frontend/.env.local`. Only thing gating
