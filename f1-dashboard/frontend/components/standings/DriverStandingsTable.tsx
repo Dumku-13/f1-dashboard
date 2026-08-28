@@ -5,6 +5,7 @@ import { ChevronUp, ChevronDown, Crown } from 'lucide-react'
 import type { DriverStanding, RoundInfo } from '@/lib/types'
 import TeamColorBar from '@/components/shared/TeamColorBar'
 import { TEAM_COLORS } from '@/lib/constants'
+import { useIsPhone } from '@/lib/breakpoint'
 
 interface Props {
   drivers: DriverStanding[]
@@ -37,6 +38,7 @@ function prevPositions(drivers: DriverStanding[], rounds: RoundInfo[]): Record<s
 export default function DriverStandingsTable({ drivers, rounds, compact = false }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState<string | null>(null)
+  const phone = useIsPhone()
 
   const shown = compact ? drivers.slice(0, 5) : (expanded ? drivers : drivers.slice(0, 22))
   const completeRounds = rounds.filter(r => r.status === 'complete')
@@ -44,12 +46,17 @@ export default function DriverStandingsTable({ drivers, rounds, compact = false 
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table className="f1-table">
+      {/* 11 rounds at 34px plus POS/DRIVER/TEAM/PTS/W/POD/FL is 596px wider
+          than a 375px screen, and that is legitimate — a season matrix is wide
+          data and scrolling it sideways is the right gesture. What was missing
+          is an anchor: scrolled to R7 you could no longer see whose row you
+          were reading. `f1-table--anchored` pins POS and DRIVER on phones. */}
+      <table className={`f1-table${compact ? '' : ' f1-table--anchored'}`}>
         <thead>
           <tr>
             <th style={{ width: '46px' }}>POS</th>
             <th>DRIVER</th>
-            {!compact && <th>TEAM</th>}
+            {!compact && !phone && <th>TEAM</th>}
             {!compact && completeRounds.map(r => (
               <th key={r.round} style={{ minWidth: '34px', textAlign: 'center', ...(r.is_sprint ? { borderTop: '2px solid var(--amber)' } : {}) }}>
                 R{r.round}
@@ -96,10 +103,10 @@ export default function DriverStandingsTable({ drivers, rounds, compact = false 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <TeamColorBar color={color} height="18px" />
                     <span className="font-display" style={{ fontWeight: 700, fontSize: '13px', letterSpacing: '0.01em' }}>{d.abbreviation}</span>
-                    {!compact && <span style={{ color: 'var(--muted)', fontSize: '12px' }}>{d.name}</span>}
+                    {!compact && !phone && <span style={{ color: 'var(--muted)', fontSize: '12px' }}>{d.name}</span>}
                   </div>
                 </td>
-                {!compact && <td style={{ color: 'var(--muted)', fontSize: '12px' }}>{d.team}</td>}
+                {!compact && !phone && <td style={{ color: 'var(--muted)', fontSize: '12px' }}>{d.team}</td>}
                 {!compact && completeRounds.map(r => {
                   const rpts = d.rounds[r.round]
                   const total = (rpts?.race || 0) + (rpts?.sprint || 0)

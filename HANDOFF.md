@@ -790,6 +790,23 @@ Each is a fixed bug. Re-check after any refactor of these files.
 | `lib/live.ts` | `miniSectors` / `speeds` / `teamRadio` are **empty on the OpenF1 source**; every consumer must degrade, not assume F1 data |
 | `routers/livetiming.py` | `"TeamRadio"` must stay in `TOPICS`, and clip URLs need `SessionInfo.Path` — the capture `Path` alone is not playable |
 | `routers/analysis.py` | `benchmarks` `track_record` is scan-bounded, not all-time; keep `seasons_scanned` + `note` in the payload |
+| `lib/breakpoint.ts` | the server snapshot is **`desktop`** and must stay a constant — returning a measured value on the server is a hydration mismatch, and the app renders the root layout on the server despite `'use client'` |
+| `globals.css` | the phone type floor matches **both** `font-size:11px` and `font-size: 11px` — React's SSR markup writes the first, a style touched through the CSSOM re-serialises as the second. On `/dashboard` alone that was 18 elements vs 15, so a rule for either form on its own fixes about half the page. |
+| `globals.css` | the phone type floor also covers **fractional** sizes (9.5/10.5/11.5px) — 31 declarations sit there, most of `/telemetry`, and an integer-only rule leaves every one behind |
+| `globals.css` | recharts tick text is targeted via **`.recharts-text`**, not `.recharts-cartesian-axis-tick` (which is a `<g>` two levels up). The size is an SVG *presentation attribute*, so any CSS rule beats it — but only if the selector matches. |
+| `globals.css` | `.f1-table--anchored` pins the POS column to a **fixed 40px width**. Its `th` declares 46px but the `td` padding widens the column to 53px, so a `left` offset assumed from the `th` left the DRIVER column sliding 7px before it caught. |
+| `MobileTabBar.tsx` | the nav swap is **CSS** (`.phone-only`/`.desktop-only`), never `useBreakpoint()` — the hook resolves a frame late, which flashes the wrong bar on every cold load |
+| `MobileTabBar.tsx` | the bar carries **no entry animation**. framer-motion never advances in the hidden browser pane, so an `initial={{ opacity: 0 }}` here leaves the app with no navigation at all under verification. |
+| `components/layout/navRoutes.ts` | the route map has **one** definition, read by both the dock and the tab bar. Two copies drift silently — the route keeps working, it just stops being reachable from one bar. |
+| `TimingTower.tsx` | the phone tower drops the sideways scroller (`overflowX: visible`, `minWidth: 0`); leaving `fit-content` on the inner box lets a long driver name widen the tower past the screen again |
+| `routers/kalshi.py` | prices are read from the **`*_dollars` string fields**. The integer `last_price` / `yes_bid` fields come back `null` on these markets, so reading those makes an actively traded market (8.0M volume) look completely dead — it did, for an hour. |
+| `routers/kalshi.py` | **a fresh `AsyncClient` per call.** Reusing the connection gets the second request closed by the remote host (`WinError 10054`); fresh connections succeeded 6/6. |
+| `routers/kalshi.py` | reads `api.elections.kalshi.com` (public, no auth) and **never** `trading-api.kalshi.com` (401, and it places orders). Don't "fix" this by adding credentials. |
+| `routers/kalshi.py` | `_normalize_name` strips generational suffixes before taking the surname — Kalshi lists "Carlos Sainz Jr." and a naive last-token split keys him as `jr`, which matched nothing (21/22 drivers resolved, he was the one that didn't) |
+| `KalshiOdds.tsx` | the panel states that the prices sum to ~118%, not 100. These are independent binary markets and are not meant to sum to 1 — presenting them as a normalised set would be wrong, and hiding the total makes the panel look broken to anyone who adds it up. |
+| `SessionClock.tsx` | seeded `null` and set in an effect — a clock rendered on the server is a guaranteed hydration mismatch (same trade `CountdownTimer` makes) |
+| `.gitignore` | `f1-dashboard/backend/*.db` — the seven runtime SQLite files are **not** tracked. Nothing seeds them: every owning router calls `_init()` at import and every table is `CREATE TABLE IF NOT EXISTS`, so a missing file is recreated empty on the next start. Re-adding them means binary merge conflicts on files the app rewrites on every run. |
+| `routers/quiz.py` | the daily questions are **generated in Python** from live standings, not stored — `quiz.db` only ever holds `attempts`. Don't "restore" a questions table. |
 | `app/live/page.tsx` | **`/live` has no max-width** — deliberately, unlike every other route. DESIGN.md's 1560px cap still applies elsewhere; this page is two columns of live data where both halves improve with every pixel. Don't sweep the uncapped shell across other routes without checking each has something to do with the space. |
 | `TimingTower.tsx` | **every** collapsed column carries an `fr` share, not just DRIVER. As the only flexible track, DRIVER absorbed all the slack once the cap came off — measured 760px wide at 2560px, with a canyon between the name and the gap. |
 | `TimingTower.tsx` | the TYRE column's floor is **68px**, sized for `"S 24L (+7)"`. At 56px the used-set suffix clipped by 6px on six rows once the type was scaled up — real data silently cut off. |
@@ -917,11 +934,13 @@ Each is a fixed bug. Re-check after any refactor of these files.
 ## 7b. NEXT SESSION — start here
 
 **State as of 2026-08-23.** All 16 redesign phases are complete and the project
-is on GitHub. Nothing below is blocked on code — it is verification and process.
+is on GitHub. **Phase 17 — the mobile version — is now in progress and is real
+code**, unlike the rest of this section, which is verification and process.
 
 ### Done, don't redo
 
-- **The redesign is finished.** Phases 01-16, written up in
+- **The redesign is finished** (Phases 01-16). Phase 17, the mobile
+  version, is a *new* phase and is in progress — see item 2 below. Written up in
   `f1-dashboard/frontend/FRONTEND_REDESIGN.md` with what was learned in each.
   Read that before proposing design changes — several directions were tried and
   explicitly rejected (notably the cream editorial ground).
@@ -942,21 +961,37 @@ is on GitHub. Nothing below is blocked on code — it is verification and proces
    (`gh` lives at `/c/Program Files/GitHub CLI`, not on PATH by default;
    authenticated as **Dumku-13**.)
 
-2. **Race-day check on a real phone.** This is the one thing that could not be
-   done from here. Phase 13 fixed layout and touch targets by measurement, but
-   a real device on a real network during a live session has never been
-   exercised. Watch: the frame-scrub landing page on mobile data (it drops to
-   every 3rd frame under 768px, ~1.3 MB), `/live` and `/follow` under a running
-   session, and the dock's auto-hide while scrolling a live tower.
+2. **The mobile version — Phase 17 is under way.** See
+   `frontend/FRONTEND_REDESIGN.md` Phase 17 for the full writeup. The
+   foundation is in (`lib/breakpoint.ts`, the phone type floor, and
+   `MobileTabBar` replacing the dock under 768px) and the **race-day four**
+   — `/live`, `/follow`, `/dashboard`, `/standings` — now measure **zero text
+   under 12px and zero horizontal overflow at 375px**, with the `/live` tower
+   reflowed to five columns plus a second line instead of an 806px sideways
+   scroll. Desktop re-measured unchanged.
 
-3. **Confirm driver-photo lazy loading on a cold cache.** All 22 carry
+   Still to do: the landing page `/` against touch momentum scrolling, the
+   browse routes (`/drivers`, `/results`, `/schedule`, `/circuits`, `/teams`),
+   and the other 32 routes, which inherit the foundation but are unaudited.
+
+   The dock's auto-hide is no longer a race-day concern on a phone — the tab
+   bar that replaces it is fixed and does not hide on scroll.
+
+3. **Race-day check on a real phone.** Still the one thing that could not be
+   done from here, and Phase 17 adds to the list: the tab bar's
+   `env(safe-area-inset-bottom)` padding only proves itself on a device with a
+   home indicator. Watch also: the frame-scrub landing page on mobile data (it
+   drops to every 3rd frame under 768px, ~1.3 MB), and `/live` and `/follow`
+   under a running session.
+
+4. **Confirm driver-photo lazy loading on a cold cache.** All 22 carry
    `loading="lazy"` and fetch counts track viewport height the way they should
    (22 fetched at 812px tall, 0 at 400px), but this environment cannot settle
    it — the browser pane never composites, so the intersection logic never runs
    and "0 fetched" is equally explained by that. Thirty seconds in a real
    browser with DevTools → Network, cache disabled, scrolling `/drivers`.
 
-4. **Housekeeping when convenient:**
+5. **Housekeeping when convenient:**
    - `f1-dashboard/frontend/.git.disabled-create-next-app` is the old
      create-next-app history, moved aside because git was treating the frontend
      as a **submodule** and would have cloned it empty. Gitignored and harmless;
@@ -974,6 +1009,59 @@ other repaired. Add a row whenever you fix something whose cause wasn't obvious.
 
 ## 8. Open items
 
+**Runtime databases are no longer in git (2026-08-23)**
+
+All **seven** backend SQLite files were tracked — not just the two that showed
+up dirty (`popularity.db`, `quiz.db`); the others simply hadn't been exercised.
+Starting the backend rewrote them, so they were swept into unrelated commits,
+and a binary file is the worst thing to hit a merge conflict on now that the
+repo has branch-per-change and a second contributor.
+
+They are now gitignored and `git rm --cached`'d. **Verified by moving all seven
+aside and restarting**: each came back with its correct schema and zero rows
+(community 4 tables, feed 5, fantasy 2, predictor 2, users 2, popularity 1,
+quiz 1), and after restoring the real data a genuine write (`POST
+/api/popularity/event`, 37 → 38 rows) left `git status` clean.
+
+Nothing seeds them. The quiz's questions are generated in Python from live
+standings — `quiz.db` only held `attempts`, so there was no seed table to
+preserve.
+
+⚠️ **`users.db` was among them, and it holds `password_hash`, `salt` and live
+session `token`s.** Untracking stops new commits carrying it, but **the existing
+history still contains it**, and that history is about to be shared with a
+collaborator. Worth deciding on before the invite goes out: rotate the affected
+credentials, or rewrite history (`git filter-repo`) — the latter is disruptive
+and rewrites every commit hash, so it is much cheaper now, with two branches and
+one contributor, than later.
+
+**The spec in `new updates for the dashbaord/` is now fully delivered (2026-08-23)**
+
+That file listed three asks. Audited each rather than assuming:
+
+1. **Follow Along / Race Engineering / AI chat / per-driver alerts** — already
+   shipped (`/follow`, `/race-engineer`, `/engineer`, `lib/alerts.ts`). **One
+   sub-item was missing**: "in live section I need a timer on how much the
+   session is left and next thing ka time". `CountdownTimer` existed but is only
+   mounted on the dashboard, landing and race pages, and it counts down to a
+   *start*. New `components/live/SessionClock.tsx` on `/live` shows time to the
+   chequered flag with a % elapsed bar while a session runs, and the next
+   calendar session with its countdown when nothing is running.
+2. **Kalshi** — was **not** built. Now done, see below.
+3. **Season switch, 3 seasons** — already shipped (`SEASONS = [2026, 2025, 2024]`
+   in `lib/season.tsx`, picker used on 10+ pages).
+
+**Kalshi needs NO API key — the earlier conclusion was wrong.** A previous
+session tested `trading-api.kalshi.com`, got 401, and recorded "needs
+credentials" (in a chat log only, never in this file). That host is for *placing
+orders*. Market **data** comes from `api.elections.kalshi.com`, which is public
+and returns 200 unauthenticated.
+
+`GET /api/kalshi/championship?year=2026` → the `KXF1-26` event, one binary
+market per driver, 22 of them, live prices and ~8.0M volume. Rendered on
+`/predictor` as the Market Odds panel: Antonelli 77%, Hamilton 8%, Norris 7%
+at time of writing — and Antonelli does lead the championship, which is a decent
+sanity check on the join.
 **Track-map dots — root cause found (2026-08-23)**
 
 The dots never appeared during a live session. Everything in front of them was

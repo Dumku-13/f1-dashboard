@@ -13,6 +13,7 @@ import { fmtLap, fmtGap, type TowerRow, type TowerSector, type QualifyingState }
 import MiniSectors from '@/components/live/MiniSectors'
 import StintBar from '@/components/live/StintBar'
 import { COMPOUND_COLORS } from '@/lib/constants'
+import { useIsPhone } from '@/lib/breakpoint'
 
 export type TowerView = 'timing' | 'stints'
 
@@ -52,6 +53,23 @@ const COLLAPSED_TOWER_GRID = [
 // width-capped: measured at 2560px it stretched to 760px, leaving a canyon
 // between the driver's name and their gap. Sharing the slack keeps the row
 // tabular at any width.
+
+/**
+ * Phone tower — five columns instead of ten.
+ *
+ * `TOWER_GRID` needs 782px of minimum track (728px of columns plus nine 6px
+ * gaps). Measured on a 375px phone that is 806px of content in a 334px box, so
+ * reading P4's gap meant scrolling the tower sideways with your thumb, mid-race
+ * — the exact one-handed case /live exists for.
+ *
+ * Nothing is dropped. The five columns below are what you check at a glance;
+ * everything else moves to a full-width second line under each row, which is
+ * why the grid ends in a `1 / -1` cell. The mini-sectors actually come out
+ * ahead: they get the whole row width (~310px) rather than the 174px minimum
+ * they're squeezed into on desktop.
+ */
+const PHONE_TOWER_GRID = '26px minmax(0,1fr) 52px 52px 40px'
+const PHONE_STINT_GRID = '26px minmax(0,1fr) 52px 52px 40px'
 const SECTOR_UI_COLORS = {
   purple: 'var(--sector-purple)',
   green: 'var(--sector-green)',
@@ -173,9 +191,12 @@ function CutLine({ label, eliminated, cutOffTime, active }: {
   )
 }
 
-function TowerRowView({ row, index, view, maxStintLaps, expanded }: { row: TowerRow; index: number; view: TowerView; maxStintLaps: number; expanded: boolean }) {
+function TowerRowView({ row, index, view, maxStintLaps, phone, expanded }: { row: TowerRow; index: number; view: TowerView; maxStintLaps: number; phone: boolean; expanded: boolean }) {
   const color = row.driver.team_colour ? `#${row.driver.team_colour.replace('#', '')}` : '#555'
   const leader = row.position === 1
+  const grid = phone
+    ? (view === 'timing' ? PHONE_TOWER_GRID : PHONE_STINT_GRID)
+    : (view === 'timing' ? TOWER_GRID : STINT_GRID)
   return (
     <motion.div
       layout="position"
@@ -187,33 +208,40 @@ function TowerRowView({ row, index, view, maxStintLaps, expanded }: { row: Tower
         display: 'grid',
         opacity: row.knockedOut ? 0.42 : 1,
         filter: row.knockedOut ? 'grayscale(0.75)' : 'none',
-        gridTemplateColumns: view === 'timing'
-          ? (expanded ? TOWER_GRID : COLLAPSED_TOWER_GRID)
-          : STINT_GRID,
+        gridTemplateColumns: phone
+          ? (view === 'timing' ? PHONE_TOWER_GRID : PHONE_STINT_GRID)
+          : (view === 'timing' ? (expanded ? TOWER_GRID : COLLAPSED_TOWER_GRID) : STINT_GRID),
         alignItems: 'center',
-        gap: '7px',
-        padding: '11px 12px',
+        gap: phone ? '4px' : '7px',
+        rowGap: phone ? '6px' : undefined,
+        padding: phone ? '9px 10px' : '11px 12px',
         borderBottom: '1px solid rgba(255,255,255,0.05)',
         background: leader ? 'linear-gradient(90deg, rgba(255,215,0,0.06), transparent 55%)' : 'transparent',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-        <span className="font-num" style={{ fontWeight: 800, fontSize: '17px', color: leader ? '#FFD700' : '#fff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: phone ? '2px' : '5px', minWidth: 0 }}>
+        <span className="font-num" style={{ fontWeight: 800, fontSize: phone ? '14px' : '17px', color: leader ? '#FFD700' : '#fff' }}>
           {row.position ?? '—'}
         </span>
-        <PosDelta row={row} />
+        {!phone && <PosDelta row={row} />}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
         <span style={{ width: '4px', height: '20px', background: color, borderRadius: '2px', flexShrink: 0, boxShadow: `0 0 8px ${color}66` }} />
-        <span className="font-display" style={{ fontWeight: 700, fontSize: '15.5px', letterSpacing: '0.02em' }}>{row.driver.name_acronym}</span>
-        <span style={{ fontSize: '12.5px', color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.driver.team_name}</span>
+        <span className="font-display" style={{ fontWeight: 700, fontSize: phone ? '14px' : '15.5px', letterSpacing: '0.02em' }}>{row.driver.name_acronym}</span>
+        {/* Measured at 375px the team name got a 47px box — "Red Bull Racing"
+            rendered as "Red B…", which is noise, not information. The colour
+            bar to its left already identifies the team, so on a phone the name
+            goes and the position delta takes its place instead. */}
+        {phone
+          ? <PosDelta row={row} />
+          : <span style={{ fontSize: '12.5px', color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.driver.team_name}</span>}
       </div>
 
       <span className="font-num" style={{ fontSize: '14px', color: row.gapToLeader === 0 ? '#FFD700' : '#D1D5DB' }}>{fmtGap(row.gapToLeader)}</span>
       <span className="font-num" style={{ fontSize: '14px', color: '#9CA3AF' }}>{fmtGap(row.interval)}</span>
 
-      {view === 'timing' && (
+      {view === 'timing' && !phone && (
         <>
           <AnimatePresence mode="popLayout">
             <motion.span
@@ -247,16 +275,70 @@ function TowerRowView({ row, index, view, maxStintLaps, expanded }: { row: Tower
         </>
       )}
 
-      <span className="font-num" style={{ fontSize: '13px', color: '#9CA3AF', textAlign: 'center' }}>{row.lapsDone || '—'}</span>
-      <span style={{ display: 'flex', justifyContent: 'center' }}>
-        {row.interval === 'IN PIT'
-          ? <span className="font-display" style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.06em', padding: '3px 7px', borderRadius: 3, background: 'rgba(59,130,246,0.16)', border: '1px solid rgba(59,130,246,0.45)', color: '#7CB0FF' }}>IN PIT</span>
-          : <span className="font-num" style={{ fontSize: '13px', color: '#9CA3AF' }}>{row.pitStops || '—'}</span>}
-      </span>
+      {!phone && (
+        <>
+          <span className="font-num" style={{ fontSize: '13px', color: '#9CA3AF', textAlign: 'center' }}>{row.lapsDone || '—'}</span>
+          <span style={{ display: 'flex', justifyContent: 'center' }}>
+            {row.interval === 'IN PIT'
+              ? <span className="font-display" style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.06em', padding: '3px 7px', borderRadius: 3, background: 'rgba(59,130,246,0.16)', border: '1px solid rgba(59,130,246,0.45)', color: '#7CB0FF' }}>IN PIT</span>
+              : <span className="font-num" style={{ fontSize: '13px', color: '#9CA3AF' }}>{row.pitStops || '—'}</span>}
+          </span>
+        </>
+      )}
       <TyreDot compound={row.compound} age={row.tyreAge} startAge={row.tyreStartAge} />
 
-      {view === 'stints' && <StintBar stints={row.stints} maxLaps={maxStintLaps} />}
+      {!phone && view === 'stints' && <StintBar stints={row.stints} maxLaps={maxStintLaps} />}
+
+      {/* Second line — the columns that don't fit five-across, spanning the
+          full row. `1 / -1` is what keeps this honest: no data is dropped on a
+          phone, it just stops competing for horizontal space with the gap and
+          interval you're actually watching. */}
+      {phone && (
+        <div style={{
+          gridColumn: '1 / -1',
+          display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 12px',
+          paddingLeft: 30,
+        }}>
+          {view === 'timing' ? (
+            <>
+              <PhoneStat label="LAST" value={fmtLap(row.lastLap?.lap_duration)} color="#E5E7EB" />
+              <PhoneStat
+                label="BEST"
+                value={fmtLap(row.bestLapDuration)}
+                color={row.isOverallBestLap ? 'var(--sector-purple)' : '#00D131'}
+              />
+              <PhoneStat label="LAPS" value={String(row.lapsDone || '—')} color="#9CA3AF" />
+              <PhoneStat
+                label="PIT"
+                value={row.interval === 'IN PIT' ? 'IN PIT' : String(row.pitStops || '—')}
+                color={row.interval === 'IN PIT' ? '#7CB0FF' : '#9CA3AF'}
+              />
+              <div style={{ flexBasis: '100%', minWidth: 0 }}>
+                <MiniSectors miniSectors={row.miniSectors} sectors={row.sectors} />
+              </div>
+            </>
+          ) : (
+            <>
+              <PhoneStat label="LAPS" value={String(row.lapsDone || '—')} color="#9CA3AF" />
+              <PhoneStat label="PIT" value={String(row.pitStops || '—')} color="#9CA3AF" />
+              <div style={{ flexBasis: '100%', minWidth: 0 }}>
+                <StintBar stints={row.stints} maxLaps={maxStintLaps} />
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </motion.div>
+  )
+}
+
+/** One labelled readout on the phone tower's second line. */
+function PhoneStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
+      <span style={{ fontSize: 12, color: 'var(--muted)', letterSpacing: '0.06em' }}>{label}</span>
+      <span className="font-num" style={{ fontSize: 12, color }}>{value}</span>
+    </span>
   )
 }
 
@@ -272,6 +354,7 @@ export default function TimingTower({
   /** Full-page tower. Mini-sectors are only drawn here — see COLLAPSED_TOWER_GRID. */
   expanded?: boolean
 }) {
+  const phone = useIsPhone()
   const timingGrid = expanded ? TOWER_GRID : COLLAPSED_TOWER_GRID
   // One horizontal scale for every stint bar, so rows stay comparable.
   const maxStintLaps = Math.max(
@@ -279,9 +362,12 @@ export default function TimingTower({
     ...rows.map(r => r.stints.reduce((n, st) => n + Math.max(st.laps, 1), 0)),
   )
 
+  // On a phone the five columns fit, so the sideways scroller is removed
+  // rather than left there empty — `fit-content` on the inner box would
+  // otherwise still let a long driver name widen the tower past the screen.
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <div style={{ minWidth: 'fit-content' }}>
+    <div style={{ overflowX: phone ? 'visible' : 'auto' }}>
+      <div style={{ minWidth: phone ? 0 : 'fit-content' }}>
         {/* `tower-head` is a styling hook, not decoration: globals.css holds the
             header (and the rows) at the body face because the expanded display
             face overruns these fixed columns. */}
@@ -289,22 +375,24 @@ export default function TimingTower({
           className="tower-head"
           style={{
             display: 'grid',
-            gridTemplateColumns: view === 'timing' ? timingGrid : STINT_GRID,
-            gap: '7px', padding: '11px 12px',
+            gridTemplateColumns: phone
+              ? (view === 'timing' ? PHONE_TOWER_GRID : PHONE_STINT_GRID)
+              : (view === 'timing' ? timingGrid : STINT_GRID),
+            gap: phone ? '4px' : '7px', padding: phone ? '10px 10px' : '11px 12px',
             borderBottom: '1px solid rgba(255,255,255,0.09)',
             fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--muted)',
           }}
         >
           <span>POS</span><span>DRIVER</span><span>GAP</span><span>INT</span>
-          {view === 'timing' && (
+          {view === 'timing' && !phone && (
             expanded
               ? <><span>LAST LAP</span><span>BEST LAP</span><span>MINI-SECTORS</span></>
               : <><span>LAST LAP</span><span>BEST LAP</span><span>S1</span><span>S2</span><span>S3</span></>
           )}
-          <span style={{ textAlign: 'center' }}>LAPS</span>
-          <span style={{ textAlign: 'center' }}>PIT</span>
+          {!phone && <span style={{ textAlign: 'center' }}>LAPS</span>}
+          {!phone && <span style={{ textAlign: 'center' }}>PIT</span>}
           <span>TYRE</span>
-          {view === 'stints' && <span>STINTS</span>}
+          {view === 'stints' && !phone && <span>STINTS</span>}
         </div>
 
         {rows.length === 0 ? (
@@ -312,7 +400,7 @@ export default function TimingTower({
             {emptyMessage}
           </div>
         ) : rows.flatMap((row, i) => {
-          const node = <TowerRowView key={row.driver.driver_number} row={row} index={i} view={view} maxStintLaps={maxStintLaps} expanded={expanded} />
+          const node = <TowerRowView key={row.driver.driver_number} row={row} index={i} view={view} maxStintLaps={maxStintLaps} phone={phone} expanded={expanded} />
           // A cut sits *after* the nth car, so check the 1-based index.
           const cutIdx = qualifying?.cutPositions.indexOf(i + 1) ?? -1
           if (cutIdx < 0) return [node]

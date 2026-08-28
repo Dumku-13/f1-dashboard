@@ -453,9 +453,13 @@ export default function HomePage() {
               <Link href={l.href} className={`${l.hot ? 'featured-card' : 'glass-card'} glass-card-hover`} style={{
                 padding: '16px 18px', textDecoration: 'none', display: 'block',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {/* Wraps rather than overflows: at 375px this grid resolves to two
+                    ~124px columns, and the phone type floor takes the NEW badge from
+                    8px to a legible 12px, which no longer fits beside "Live Timing"
+                    on one line. Desktop has the room and is unaffected. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <l.Icon size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-                  <div className="font-display" style={{ fontWeight: 700, fontSize: '14px', color: '#fff', letterSpacing: '0.01em' }}>{l.label}</div>
+                  <div className="font-display" style={{ fontWeight: 700, fontSize: '14px', color: '#fff', letterSpacing: '0.01em', minWidth: 0 }}>{l.label}</div>
                   {l.hot && <span style={{ fontSize: '8px', fontWeight: 800, letterSpacing: '0.1em', color: '#FFD700', background: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.3)', borderRadius: '99px', padding: '2px 7px' }}>NEW</span>}
                 </div>
                 <div style={{ fontSize: '11px', color: '#9CA3AF', marginTop: '8px' }}>{l.desc}</div>

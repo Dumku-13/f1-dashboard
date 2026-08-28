@@ -12,6 +12,7 @@ import AlertToaster from '@/components/alerts/AlertToaster'
 import AlertSettings from '@/components/alerts/AlertSettings'
 import PopOutButton from '@/components/widgets/PopOutButton'
 import TrackMap from '@/components/live/TrackMap'
+import SessionClock from '@/components/live/SessionClock'
 import EngineerDock from '@/components/engineer/EngineerDock'
 import { COMPOUND_COLORS, FLAG_COLORS } from '@/lib/constants'
 import { Flag, Thermometer, Wind, Droplets, Radio, Bell, Clock, Maximize2, Minimize2 } from 'lucide-react'
@@ -285,10 +286,10 @@ export default function LivePage() {
         </div>
 
         {/* The rail stays mounted when the tower expands — it moves BELOW
-            instead of vanishing. Expanding used to unmount all four panels, so
-            the map, benchmarks, race control and radio disappeared to read one
-            extra column of timing, and the map then refetched its outline on
-            the way back.
+            instead of vanishing. Expanding used to unmount all five panels, so
+            the clock, map, benchmarks, race control and radio disappeared to
+            read one extra column of timing, and the map then refetched its
+            outline on the way back.
 
             The parent grid is a single column while expanded, so this lands
             under the tower on its own; the only change needed is the internal
@@ -297,6 +298,9 @@ export default function LivePage() {
         <div style={expanded
           ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', alignItems: 'start' }
           : { display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Top of the rail: mid-session the first thing you want is how long
+              is left, and off-session, when the next one starts. */}
+          <SessionClock session={session} live={status === 'live'} />
           <TrackMap rows={rows} live={status === 'live'} trackStatus={trackStatus} />
           <BenchmarksPanel session={session} rows={rows} />
           <RaceControlFeed items={raceControl} />

@@ -16,6 +16,7 @@ import { hexColor } from '@/lib/utils'
 import type { TowerRow } from '@/lib/live'
 import { mapEmphasis, mapPaintRank } from '@/lib/battle'
 import { VIEW_W, VIEW_H, CAR_RADIUS, boundsOf, makeProject, centroidOf, pitLaneSlots } from './pitLane'
+import { useIsPhone } from '@/lib/breakpoint'
 
 /** A numbered turn, in the same fastf1 space as the outline. */
 interface Corner { x: number; y: number; number: number; letter?: string }
@@ -56,6 +57,7 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
   /** Acronyms kept at full strength alongside the focused car (their battle). */
   highlight?: string[]
 }) {
+  const phone = useIsPhone()
   const [outline, setOutline] = useState<[number, number][]>([])
   const [corners, setCorners] = useState<Corner[]>([])
   const trailRef = useRef<[number, number][]>([])
@@ -183,7 +185,12 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
                         textAnchor="middle"
                         dominantBaseline="middle"
                         style={{
-                          fontSize: '7.5px', fontWeight: 700, fill: 'rgba(255,255,255,0.62)',
+                          // The whole SVG scales down with its container, so a
+                          // size that reads on a 590px desktop map renders at
+                          // ~6.4px on a 375px phone — under the phone type floor
+                          // the mobile pass established, and simply unreadable.
+                          fontSize: phone ? '11px' : '7.5px',
+                          fontWeight: 700, fill: 'rgba(255,255,255,0.62)',
                           fontFamily: 'Space Grotesk, monospace',
                           paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.75)', strokeWidth: 2.5,
                         }}
