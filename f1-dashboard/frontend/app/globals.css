@@ -906,6 +906,10 @@ h1.section-title, h2.section-title, h3.section-title, h4.section-title {
      its spans at 0.72rem (11.52px), and 1 was `.kicker` itself. */
   .kicker { font-size: 12px; }
 
+  /* The lap-compare hint on /map — the last class-driven sub-12px node left
+     after the inline-style pass. */
+  .lc-hint { font-size: 12px; }
+
   .f1-table th {
     font-size: 12px;
     /* 0.12em of tracking on a 12px uppercase header is what pushes a narrow
