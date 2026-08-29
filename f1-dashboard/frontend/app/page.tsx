@@ -612,4 +612,47 @@ const PROTOTYPE_CSS = `
 @media (prefers-reduced-motion: reduce) {
   .hp-rise, .hp-track path { animation: none; }
 }
+
+/* --- Phone type floor -----------------------------------------------------
+   The landing page carries its own stylesheet, so the app-wide phone floor in
+   globals.css never reached it — that floor works on inline styles plus a few
+   named classes, and these are neither. Measured at 375px this page had 34
+   text nodes under 12px while every route behind it had zero. It is also the
+   first page anyone opens, which makes it the worst place to leave them.
+
+   Sizes are lifted, not the layout: these are labels and metadata, and the
+   scroll choreography above is untouched. */
+@media (max-width: 767px) {
+  .hp-label,
+  .hp-news-age,
+  .hp-news-source,
+  .hp-news-index,
+  .hp-more,
+  .hp-toggle-btn {
+    font-size: 12px;
+  }
+
+  /* Tracking that reads as deliberate at 10px reads as broken at 12px. */
+  .hp-label { letter-spacing: 0.14em; }
+
+  /* Standalone CTA, not prose — the global 40px floor skips anchors because
+     most links here sit inside sentences, and this one does not. */
+  .hp-more {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* The view toggles are real controls and were 11px text in a short box. */
+  .hp-toggle-btn { min-height: 40px; }
+
+  /* The last five sat at 10px with no class and no inline style of their own,
+     inheriting from these three: the hero definition-list terms, the scroll
+     cue, and the dossier kicker. */
+  .hp-data dt,
+  .hp-cue,
+  .hp-dossier-kicker {
+    font-size: 12px;
+  }
+}
 `
