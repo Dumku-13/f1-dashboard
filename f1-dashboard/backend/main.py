@@ -3,8 +3,13 @@ import fastf1
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Configure FastF1 cache
-cache_path = os.path.join(os.path.dirname(__file__), "cache")
+# Configure FastF1 cache.
+#
+# Overridable because the local cache is ~3.1GB, is gitignored, and never ships
+# with a deploy. On a host, point FASTF1_CACHE at a mounted persistent disk;
+# without one fastf1 still works, it just re-downloads per session, which is
+# what makes a cold telemetry request slow rather than broken.
+cache_path = os.getenv("FASTF1_CACHE") or os.path.join(os.path.dirname(__file__), "cache")
 os.makedirs(cache_path, exist_ok=True)
 fastf1.Cache.enable_cache(cache_path)
 
@@ -16,9 +21,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Local development stays open on any localhost port. In production the
+# frontend proxies `/api/*` server-side (see the rewrite in next.config.ts), so
+# the browser never calls this host cross-origin and CORS is not on the critical
+# path — but ALLOWED_ORIGINS is here for anything that does call directly, and
+# for a deploy where the two halves are split across domains.
+_extra_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_origins=_extra_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
