@@ -1,9 +1,15 @@
 # F1 Dashboard — Project Handoff
 
 **Last updated:** 2026-08-23 · Read this first in a new session.
-**Repo:** https://github.com/Dumku-13/f1-dashboard (private, `main`)
+**Repo:** https://github.com/Dumku-13/f1-dashboard (**public** since 2026-08-23, `main`)
 
 Related docs (read as needed, don't duplicate them here):
+
+- `SESSION-2026-08-23.md` — **what changed on 23 Aug and why**, in one file:
+  the mobile pass, Kalshi, the track-map rework, the three PRs, the traps that
+  cost time, and what is still open. Start there if you are picking up straight
+  after that session; this file remains the source of truth for the project as
+  a whole.
 
 - `README.md` — the collaborator's entry point: how to run it, the verification
   gate, and the working agreements. Points back here for depth.
