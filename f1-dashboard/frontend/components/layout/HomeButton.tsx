@@ -47,7 +47,12 @@ export default function HomeButton() {
         display: 'inline-flex',
         alignItems: 'center',
         gap: '9px',
+        // Inline, not left to the `pointer: coarse` floor in globals.css.
+        // That floor deliberately excludes anchors (most links here sit inside
+        // prose), and adding `.home-chip` to it did not win the cascade — this
+        // is global chrome tapped on every route, so it gets an explicit target.
         padding: '6px 14px',
+        minHeight: '40px',
         borderRadius: '2px',
         textDecoration: 'none',
         // No card, no shadow, no fill — it sits on whatever is behind it.

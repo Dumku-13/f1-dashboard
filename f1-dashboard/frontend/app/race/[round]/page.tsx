@@ -363,4 +363,30 @@ const WEEKEND_CSS = `
   .wk-hero-body { max-width: 100%; }
   .wk-hero-track { opacity: 0.2; width: 78%; right: -14%; }
 }
+
+/* --- Phone type floor -----------------------------------------------------
+   Same gap the landing page had: this route carries its own stylesheet, so the
+   app-wide phone floor in globals.css never reached these classes. Measured at
+   375px, 18 text nodes under 12px while the routes around it measured zero.
+   Sizes only — the layout above is untouched. */
+@media (max-width: 767px) {
+  .wk-hero-stats dt,
+  .wk-records dt,
+  .wk-session-n,
+  .wk-session-when,
+  .wk-more {
+    font-size: 12px;
+  }
+
+  /* Tracking tuned for 10px reads as broken once the size goes up. */
+  .wk-session-n { letter-spacing: 0.08em; }
+
+  /* Standalone CTA, not prose — the global 40px floor skips anchors because
+     most links here sit inside sentences, and this one does not. */
+  .wk-more {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+}
 `
