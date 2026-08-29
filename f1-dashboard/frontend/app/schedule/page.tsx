@@ -19,6 +19,7 @@ import { useSeason } from '@/lib/season'
 import { formatISTDate } from '@/lib/ist'
 import { CIRCUIT_VIEWBOX } from '@/lib/constants'
 import type { CalendarEvent, Circuit } from '@/lib/types'
+import { useIsPhone } from '@/lib/breakpoint'
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 
@@ -62,6 +63,8 @@ function RaceCard({
       data-round={ev.round}
       style={{
         flexShrink: 0, width: 'min(300px, 78vw)', textAlign: 'left', cursor: 'pointer',
+        // eslint-disable-next-line react-hooks/rules-of-hooks -- plain CSS, no hook
+        flexGrow: 1,
         background: active ? 'var(--card)' : 'rgba(11,12,14,0.86)',
         border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
         borderRadius: 2, padding: '14px 16px',
@@ -126,6 +129,7 @@ function SeasonSchedule({ year }: { year: number }) {
   }, [circuits])
 
   const [selected, setSelected] = useState<number | null>(null)
+  const phone = useIsPhone()
   const railRef = useRef<HTMLDivElement>(null)
 
   // Land on the next upcoming round.
@@ -264,9 +268,12 @@ function SeasonSchedule({ year }: { year: number }) {
           onClick={() => step(-1)}
           aria-label="Previous round"
           style={{
-            flexShrink: 0, width: 36, height: 36, borderRadius: 2, cursor: 'pointer',
+            flexShrink: 0, width: 40, height: 40, borderRadius: 2, cursor: 'pointer',
             background: 'var(--surface)', border: '1px solid var(--border)',
-            color: 'var(--foreground)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--foreground)', alignItems: 'center', justifyContent: 'center',
+            // The steppers drive a horizontal rail. On a phone the rail wraps
+            // into a grid, so there is nothing left to step through.
+            display: phone ? 'none' : 'inline-flex',
           }}
         >
           <ChevronLeft size={16} />
@@ -275,7 +282,12 @@ function SeasonSchedule({ year }: { year: number }) {
         <div
           ref={railRef}
           className="hide-scrollbar"
-          style={{ display: 'flex', gap: 10, overflowX: 'auto', scrollBehavior: 'smooth', flex: 1, padding: '2px 0' }}
+          style={phone
+            // 23 rounds in one sideways rail is 6704px of thumb-scrolling in a
+            // 244px box — measured. Wrapping puts them down the page instead,
+            // which is the direction a phone already scrolls.
+            ? { display: 'flex', flexWrap: 'wrap', gap: 10, flex: 1, padding: '2px 0' }
+            : { display: 'flex', gap: 10, overflowX: 'auto', scrollBehavior: 'smooth', flex: 1, padding: '2px 0' }}
         >
           {calendar.map(ev => (
             <RaceCard
@@ -292,9 +304,12 @@ function SeasonSchedule({ year }: { year: number }) {
           onClick={() => step(1)}
           aria-label="Next round"
           style={{
-            flexShrink: 0, width: 36, height: 36, borderRadius: 2, cursor: 'pointer',
+            flexShrink: 0, width: 40, height: 40, borderRadius: 2, cursor: 'pointer',
             background: 'var(--surface)', border: '1px solid var(--border)',
-            color: 'var(--foreground)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--foreground)', alignItems: 'center', justifyContent: 'center',
+            // The steppers drive a horizontal rail. On a phone the rail wraps
+            // into a grid, so there is nothing left to step through.
+            display: phone ? 'none' : 'inline-flex',
           }}
         >
           <ChevronRight size={16} />
