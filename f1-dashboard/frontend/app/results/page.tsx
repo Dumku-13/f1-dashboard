@@ -113,7 +113,12 @@ function SeasonResults({ year }: { year: number }) {
               title={ev.name}
               className="font-num"
               style={{
-                padding: '6px 10px', borderRadius: 2, cursor: 'pointer', minWidth: 38,
+                // `minHeight` explicitly, not left to the `pointer: coarse`
+                // floor in globals.css — an inline style beats a media query,
+                // which is the exact trap the Phase 13 touch-target pass
+                // documented. Measured at 375px these 31 round buttons were
+                // 32px tall, under the 40px floor everywhere else obeys.
+                padding: '8px 10px', borderRadius: 2, cursor: 'pointer', minWidth: 40, minHeight: 40,
                 border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
                 background: active ? 'var(--accent)' : 'transparent',
                 color: active ? '#fff' : done ? 'var(--foreground)' : 'var(--muted)',
@@ -136,7 +141,9 @@ function SeasonResults({ year }: { year: number }) {
             aria-pressed={session === s.id}
             className="font-display"
             style={{
-              padding: '7px 15px', border: 'none', cursor: 'pointer', borderRadius: 2,
+              // Same reason as the round buttons above: an inline style beats
+              // the `pointer: coarse` floor, so the session tabs sat at 32px.
+              padding: '10px 15px', minHeight: 40, border: 'none', cursor: 'pointer', borderRadius: 2,
               fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
               background: session === s.id ? 'var(--accent)' : 'transparent',
               color: session === s.id ? '#fff' : 'var(--muted)',
@@ -178,7 +185,7 @@ function SeasonResults({ year }: { year: number }) {
               {session} Classification
             </h2>
             <div style={{ overflowX: 'auto' }}>
-              <table className="f1-table">
+              <table className="f1-table f1-table--anchored">
                 <thead>
                   <tr>
                     <th style={{ width: 44 }}>POS</th>
@@ -306,6 +313,11 @@ function SeasonResults({ year }: { year: number }) {
                     display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 13,
                     fontSize: 11, color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.05em',
                     textTransform: 'uppercase', fontFamily: 'var(--font-display)', textDecoration: 'none',
+                    // The global 40px floor deliberately skips `<a>`, because
+                    // most links here sit inside prose and inflating them would
+                    // wreck the line boxes. This one is a standalone CTA, not
+                    // prose, so it gets the target the rule would have given it.
+                    minHeight: 40, paddingRight: 4,
                   }}
                 >
                   Weekend hub <ChevronRight size={12} />
