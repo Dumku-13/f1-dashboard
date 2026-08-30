@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart, MessageCircle, Repeat2, Flag, Trash2, Send, ImageOff } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
 import { avatarColor, relTime, type FeedPost, type FeedComment } from './types'
 import Linkify from './Linkify'
-import { authHeaders } from '@/lib/auth'
+import { authHeaders, hasSession } from '@/lib/auth'
+import { usePow, powHeader } from '@/lib/pow'
 import { safeImageUrl } from '@/lib/sanitize'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
@@ -48,6 +49,12 @@ export default function PostCard({
   // `javascript:`/`data:` src would run when this renders.
   const imageSrc = safeImageUrl(post.image_url)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  // Only solve once the comment box is actually open. A feed page renders
+  // 30 of these cards, and pre-solving in every one would mean 30 challenge
+  // requests and 30 pointless solves for someone who is just scrolling.
+  const [signedIn, setSignedIn] = useState(true)
+  useEffect(() => { setSignedIn(hasSession()) }, [])
+  const pow = usePow('content', commentsOpen && !signedIn)
   const [comments, setComments] = useState<FeedComment[] | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
@@ -81,7 +88,7 @@ export default function PostCard({
       const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}/comments`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(), ...powHeader(signedIn ? null : pow.consume()) },
         body: JSON.stringify({ username: myUsername, text }),
       })
       if (res.ok) {

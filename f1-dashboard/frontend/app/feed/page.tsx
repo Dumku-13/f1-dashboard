@@ -11,7 +11,8 @@ import Composer from '@/components/feed/Composer'
 import FeedPostItem from '@/components/feed/FeedPostItem'
 import RightRail from '@/components/feed/RightRail'
 import type { FeedPost, FollowSuggestion } from '@/components/feed/types'
-import { authHeaders } from '@/lib/auth'
+import { authHeaders, hasSession } from '@/lib/auth'
+import { usePow, powHeader } from '@/lib/pow'
 
 const YEAR = 2026
 type SortMode = 'hot' | 'new' | 'following'
@@ -44,6 +45,12 @@ export default function FeedPage() {
   // that someone has since registered gets a 401 telling them to sign in. That
   // has to be readable — silently dropping the post looks like a broken button.
   const [actionError, setActionError] = useState('')
+  // Guests pay a small proof of work to post; a signed-in account already
+  // paid at registration and is rate-limited under a name it cannot spoof.
+  // Solved in the background so the Post button never waits on it.
+  const [signedIn, setSignedIn] = useState(true)
+  useEffect(() => { setSignedIn(hasSession()) }, [])
+  const pow = usePow('content', !signedIn)
   const [hasMore, setHasMore] = useState(true)
 
   useEffect(() => {
@@ -122,7 +129,7 @@ export default function FeedPage() {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(), ...powHeader(signedIn ? null : pow.consume()) },
         body: JSON.stringify({ username: name, ...data }),
       })
       if (!res.ok) {

@@ -20,8 +20,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
+
+from bot_guard import check_honeypot, issue_challenge, verify_proof
 
 router = APIRouter()
 
@@ -344,6 +346,11 @@ class RegisterIn(BaseModel):
     username: str = Field(min_length=3, max_length=24)
     password: str = Field(min_length=6, max_length=128)
     email: str | None = Field(default=None, max_length=120)
+    #: Honeypot. Hidden from people by the form, irresistible to a bot that
+    #: fills every input it finds. Named `website` because that is the kind of
+    #: field they are looking for. It has to be declared here rather than
+    #: arriving as an extra key, because the model forbids extras.
+    website: str | None = Field(default=None, max_length=200)
 
 
 class LoginIn(BaseModel):
@@ -362,8 +369,28 @@ class ProfileIn(BaseModel):
     favorite_team: str | None = Field(default=None, max_length=40)
 
 
+@router.get("/challenge")
+def challenge(scope: str = Query("register", max_length=16)):
+    """Hand out a proof-of-work challenge.
+
+    Open by design — the challenge is worthless without the work, and issuing
+    one is cheaper than the work of solving it, so there is nothing here to
+    ration that the difficulty is not already rationing.
+    """
+    return issue_challenge(scope)
+
+
 @router.post("/register")
-def register(body: RegisterIn, request: Request, response: Response):
+def register(
+    body: RegisterIn,
+    request: Request,
+    response: Response,
+    x_pow: str | None = Header(default=None),
+):
+    # Cheapest checks first: the honeypot and the proof both reject a bot
+    # before a single password hash is computed.
+    check_honeypot(body.website)
+    verify_proof("register", x_pow)
     username = body.username.strip()
     if not USERNAME_RE.match(username):
         raise HTTPException(400, "username: 3-24 letters, numbers, _ or -")
@@ -408,7 +435,16 @@ def register(body: RegisterIn, request: Request, response: Response):
 
 
 @router.post("/login")
-def login(body: LoginIn, request: Request, response: Response):
+def login(
+    body: LoginIn,
+    request: Request,
+    response: Response,
+    x_pow: str | None = Header(default=None),
+):
+    # Cheap per attempt for a person, paid on every guess by a stuffing run —
+    # and unlike the rate limits below, it cannot be sidestepped by rotating
+    # the name or coming from another address.
+    verify_proof("login", x_pow)
     name = body.username.strip()
     ip = _client_ip(request)
     now = time.time()

@@ -7,6 +7,7 @@ import { LogIn, UserPlus, KeyRound, Mail, Flag, Eye, EyeOff } from 'lucide-react
 import { login, register, useAuth } from '@/lib/auth'
 import { getUsername } from '@/lib/wallet'
 import FormStatus from '@/components/ui/FormStatus'
+import { usePow } from '@/lib/pow'
 
 // Tokens, not literals: this page is one of the surfaces the light theme has
 // to work on, and `#0E0F12` on paper is a black box.
@@ -41,6 +42,13 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
+  // Honeypot. A person never sees this field, so anything in it came from
+  // something filling inputs it found rather than inputs it was shown.
+  const [website, setWebsite] = useState('')
+  // Solved in the background while the form is being filled, so submitting
+  // costs nothing. The scope changes with the mode because the two carry
+  // different difficulties — see DIFFICULTY in backend/bot_guard.py.
+  const pow = usePow(mode === 'register' ? 'register' : 'login')
 
   // Prefill with the guest paddock name — registering it adopts your history
   useEffect(() => { setUsernameField(getUsername()) }, [])
@@ -79,8 +87,9 @@ export default function LoginPage() {
     setBusy(true)
     setError('')
     try {
-      if (mode === 'signin') await login(username.trim(), password)
-      else await register(username.trim(), password, email.trim() || undefined)
+      const proof = pow.consume()
+      if (mode === 'signin') await login(username.trim(), password, proof)
+      else await register(username.trim(), password, email.trim() || undefined, proof, website)
       // Confirm before leaving. The page used to navigate instantly, so a
       // successful sign-in and a silently-swallowed failure looked identical.
       setSuccess(mode === 'signin' ? 'Signed in — rolling out…' : 'Contract signed — welcome to the grid…')
@@ -202,6 +211,25 @@ export default function LoginPage() {
             />
           </div>
         )}
+
+        {/* Honeypot. Hidden with inline styles rather than `display: none`,
+            because the cruder bots skip anything display:none but will happily
+            fill a field that is merely positioned off-screen. aria-hidden and
+            tabIndex -1 keep it away from assistive tech and the tab order;
+            autoComplete="off" stops a password manager filling it and locking
+            a real person out. */}
+        <div aria-hidden style={{ position: 'absolute', left: '-9999px', top: 0, width: '1px', height: '1px', overflow: 'hidden' }}>
+          <label htmlFor="website">Website</label>
+          <input
+            id="website"
+            name="website"
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            value={website}
+            onChange={e => setWebsite(e.target.value)}
+          />
+        </div>
 
         <div ref={statusRef} tabIndex={-1} style={{ outline: 'none' }}>
           <FormStatus tone="success" message={success} />

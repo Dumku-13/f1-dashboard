@@ -80,10 +80,11 @@ export function authFetch(input: string, init: RequestInit = {}): Promise<Respon
   })
 }
 
-async function authedPost(path: string, body?: unknown): Promise<{ user: AuthUser }> {
+async function authedPost(path: string, body?: unknown, proof?: string | null): Promise<{ user: AuthUser }> {
   const res = await authFetch(`${BACKEND_URL}/api/auth/${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    // The proof-of-work header, when the endpoint asks for one. See lib/pow.ts.
+    headers: { 'Content-Type': 'application/json', ...(proof ? { 'X-Pow': proof } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const data = await res.json().catch(() => null)
@@ -91,15 +92,22 @@ async function authedPost(path: string, body?: unknown): Promise<{ user: AuthUse
   return data
 }
 
-export async function register(username: string, password: string, email?: string): Promise<AuthUser> {
-  const { user } = await authedPost('register', { username, password, email: email || null })
+export async function register(
+  username: string,
+  password: string,
+  email?: string,
+  proof?: string | null,
+  /** Honeypot value. Always '' from a real person — the field is hidden. */
+  website = '',
+): Promise<AuthUser> {
+  const { user } = await authedPost('register', { username, password, email: email || null, website }, proof)
   setUsername(user.username) // bind the paddock identity
   window.dispatchEvent(new CustomEvent(EVT))
   return user
 }
 
-export async function login(username: string, password: string): Promise<AuthUser> {
-  const { user } = await authedPost('login', { username, password })
+export async function login(username: string, password: string, proof?: string | null): Promise<AuthUser> {
+  const { user } = await authedPost('login', { username, password }, proof)
   setUsername(user.username)
   window.dispatchEvent(new CustomEvent(EVT))
   return user
@@ -111,11 +119,22 @@ export async function logout(): Promise<void> {
   window.dispatchEvent(new CustomEvent(EVT))
 }
 
+/**
+ * Drop the readable half after the server has told us the session is gone.
+ *
+ * The httpOnly half is the server's to clear, but if it expires or is revoked
+ * the CSRF twin lingers, `hasSession()` keeps answering yes, and every single
+ * page load fires a /me request that is guaranteed to 401.
+ */
+function forgetStaleSession() {
+  document.cookie = `${CSRF_COOKIE}=; Max-Age=0; path=/`
+}
+
 export async function fetchMe(): Promise<AuthUser | null> {
   if (!hasSession()) return null
   try {
     const res = await authFetch(`${BACKEND_URL}/api/auth/me`)
-    if (res.status === 401) return null
+    if (res.status === 401) { forgetStaleSession(); return null }
     if (!res.ok) return null
     return await res.json()
   } catch {

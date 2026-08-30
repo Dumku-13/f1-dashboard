@@ -12,10 +12,12 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth_guard import verify_identity
+from bot_guard import verify_proof
+from routers.auth import resolve_caller
 from safe_url import safe_image_url
 
 router = APIRouter()
@@ -104,6 +106,18 @@ def _init():
 
 
 _init()
+
+
+def require_proof_from_guests(request: Request, x_pow: str | None) -> None:
+    """Make anonymous writes cost something; leave signed-in ones alone.
+
+    The flood limits below are per username, and a bot rotating guest names
+    walks straight past them. A signed-in account already paid at
+    registration and is rate-limited under a name it cannot spoof, so the
+    proof is asked for exactly where identity is missing.
+    """
+    if resolve_caller(request) is None:
+        verify_proof("content", x_pow)
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
@@ -265,7 +279,8 @@ def _visible_where(viewer: str) -> tuple[str, tuple]:
 # ── Posts ────────────────────────────────────────────────────────────────────
 
 @router.post("/posts")
-def create_post(p: PostIn, request: Request):
+def create_post(p: PostIn, request: Request, x_pow: str | None = Header(default=None)):
+    require_proof_from_guests(request, x_pow)
     username = verify_identity(p.username, request)
     text = p.text.strip()
     if not text:
@@ -444,8 +459,9 @@ def list_comments(post_id: int):
 
 @router.post("/posts/{post_id}/comments")
 def create_comment(
-    post_id: int, body: CommentIn, request: Request
+    post_id: int, body: CommentIn, request: Request, x_pow: str | None = Header(default=None)
 ):
+    require_proof_from_guests(request, x_pow)
     username = verify_identity(body.username, request)
     text = body.text.strip()
     if not text:

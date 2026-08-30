@@ -117,6 +117,33 @@ const ENTRIES: Entry[] = [
     ),
   },
   {
+    // backend/bot_guard.py + public/pow-worker.js.
+    id: 'proof-of-work',
+    q: 'Why did my browser do some computation when I signed up?',
+    a: (
+      <>
+        <p>
+          It did, and it is worth being straight about it, because from the outside a page that
+          spins the CPU looks exactly like a site mining cryptocurrency. <b>This is not that.</b>
+          Nothing is mined, no coin is involved, and nothing is earned by anyone.
+        </p>
+        <p>
+          Signing up, signing in, and posting as a guest each ask the browser to solve a small
+          puzzle first — a few hundred milliseconds, run in a background worker so the page never
+          stutters, and usually finished before you press the button. It costs a person almost
+          nothing and costs a script running thousands of sign-ups the same amount every single
+          time, which is the entire idea.
+        </p>
+        <p>
+          It replaces a CAPTCHA. A CAPTCHA would mean loading Google&apos;s or Cloudflare&apos;s
+          script into this page and handing them a record of your visit; this way nothing leaves
+          your browser. Signed-in accounts skip the puzzle when posting — you have already proved
+          you are a person once.
+        </p>
+      </>
+    ),
+  },
+  {
     // lib/utm.ts — first-touch in localStorage, last-touch in sessionStorage.
     id: 'tracking',
     q: 'Do you track where I came from?',
