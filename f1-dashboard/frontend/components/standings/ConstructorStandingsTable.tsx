@@ -37,7 +37,7 @@ export default function ConstructorStandingsTable({ constructors, rounds, compac
   const prevPos = useMemo(() => prevPositions(constructors, rounds), [constructors, rounds])
 
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div className="table-scroll">
       <table className="f1-table">
         <thead>
           <tr>

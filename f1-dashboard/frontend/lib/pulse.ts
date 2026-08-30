@@ -9,6 +9,7 @@
 
 import { BACKEND_URL } from '@/lib/constants'
 import { getUsername } from '@/lib/wallet'
+import { authHeaders } from '@/lib/auth'
 
 const DEBOUNCE_MS = 30_000
 const recent = new Map<string, number>()
@@ -27,7 +28,7 @@ export function logPulse(kind: 'view' | 'pick' | 'mention', driver: string) {
   try {
     fetch(`${BACKEND_URL}/api/popularity/event`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ kind, driver: drv, username: getUsername() || undefined }),
     }).catch(() => null)
   } catch {

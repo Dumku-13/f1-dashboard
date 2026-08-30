@@ -13,6 +13,7 @@ import { useCalendar } from '@/lib/api/hooks'
 import EmojiRain from '@/components/paddock/EmojiRain'
 import PollsPanel from '@/components/paddock/PollsPanel'
 import type { DriverStanding } from '@/lib/types'
+import { authHeaders } from '@/lib/auth'
 
 const POLL = 3000
 const QUICK_EMOJI = ['🔥', '😂', '😱', '👏', '🏆', '💀']
@@ -237,7 +238,7 @@ export default function PaddockPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/community/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ channel: active, username: name, text, kind }),
       })
       if (!res.ok) {
@@ -271,7 +272,7 @@ export default function PaddockPage() {
     if (!name) return
     await fetch(`${BACKEND_URL}/api/community/reactions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ message_id: messageId, username: name, emoji }),
     }).catch(() => null)
     fetchExtras(active)
@@ -281,7 +282,7 @@ export default function PaddockPage() {
     if (!name) return
     const res = await fetch(
       `${BACKEND_URL}/api/community/messages/${messageId}/pin?username=${encodeURIComponent(name)}`,
-      { method: 'POST' },
+      { method: 'POST', headers: authHeaders() },
     ).catch(() => null)
     // Only mirror the change locally if the backend accepted it — the pin is
     // author-only, so someone else's message will come back 403.

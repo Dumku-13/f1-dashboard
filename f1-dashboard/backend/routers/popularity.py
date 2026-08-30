@@ -8,8 +8,10 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Header, HTTPException, Response
+from pydantic import BaseModel, ConfigDict, Field
+
+from auth_guard import verify_identity
 
 router = APIRouter()
 
@@ -53,13 +55,15 @@ _init()
 
 
 class EventIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: str
     driver: str = Field(min_length=2, max_length=4)
     username: str | None = None
 
 
 @router.post("/event", status_code=204)
-async def log_event(body: EventIn):
+async def log_event(body: EventIn, authorization: str | None = Header(default=None)):
     kind = body.kind.strip().lower()
     if kind not in VALID_KINDS:
         raise HTTPException(400, "invalid kind")
@@ -68,7 +72,11 @@ async def log_event(body: EventIn):
     if not DRIVER_RE.match(driver):
         raise HTTPException(400, "invalid driver code")
 
-    username = (body.username or "").strip()[:24] or "anon"
+    # Anonymous events are the norm here, so only a *claimed* name is checked:
+    # no name means "anon", a name means prove it. Popularity feeds a public
+    # index, and the per-name rate limit is only a limit if the name is real.
+    claimed = (body.username or "").strip()[:24]
+    username = verify_identity(claimed, authorization) if claimed else "anon"
     now = time.time()
 
     with db() as conn:

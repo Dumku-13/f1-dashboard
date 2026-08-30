@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
 /* Class-based dark mode (Tailwind v4): `.dark` on <html> drives `dark:` variants
-   instead of the OS `prefers-color-scheme`. The site is always dark. */
+   instead of the OS `prefers-color-scheme`. ThemeApplier keeps that class in
+   sync with the resolved theme, so the 16 `dark:` utilities in the app follow
+   the toggle rather than the OS. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ============================================================================
@@ -37,7 +39,49 @@
 
   --font-display: 'Chakra Petch', 'Archivo', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Body text one step below --foreground. Exists because the light theme
+     needs somewhere to send the near-white greys the pages hardcode. */
+  --foreground-soft: #D1D5DB;
+
+  /* The blueprint grid and the pit-lane halo behind every page. These lived as
+     an inline style on <body> in layout.tsx, where no theme could reach them —
+     a white hairline is invisible on a white page. */
+  --grid-line: rgba(255, 255, 255, 0.016);
+  --halo: rgba(225, 6, 0, 0.055);
 }
+
+/* ── Light theme ────────────────────────────────────────────────────────────
+   Dark is the default and stays byte-identical; this block is the entire
+   light theme. Paper surfaces rather than an inverted dark palette, and the
+   accent held at 4.6:1 on the page background (AA for normal text) so the
+   red stays usable for links and labels, not just for fills. */
+:root[data-theme="light"] {
+  --background: #F5F6F8;
+  --surface: #FFFFFF;
+  --card: #FFFFFF;
+  --border: #D8DBE0;
+  --hairline: #E6E8EC;
+  --foreground: #16181C;   /* 15.9:1 on --background */
+  --foreground-soft: #2A2D33;
+  --muted: #5B6069;        /*  5.9:1 — passes AA as body text, not just as a label */
+  --accent: #E10600;       /*  4.6:1 on --background */
+  --accent-hover: #B80500;
+  --amber: #8A6A00;        /* #FFC800 is invisible on paper; this is the same hue, readable */
+
+  --grid-line: rgba(11, 12, 14, 0.045);
+  --halo: rgba(225, 6, 0, 0.05);
+
+  color-scheme: light;
+}
+
+/* Sector and compound colours are the sport's, not ours, so they do NOT get
+   remapped wholesale — a soft tyre is that red everywhere. Only the two that
+   literally cannot be seen on paper are adjusted, and only where they are
+   used as *text*: filled chips keep the true colour. */
+:root[data-theme="light"] .sector-yellow { color: #8A7500; }
+:root[data-theme="light"] .tyre-HARD { border: 1px solid var(--border); }
+:root[data-theme="light"] .tyre-MEDIUM { border: 1px solid rgba(0, 0, 0, 0.12); }
 
 @theme inline {
   --color-background: var(--background);
@@ -49,8 +93,18 @@
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
+  /* Blueprint grid (hairlines every 44px) plus a faint halo off the top edge,
+     like pit-lane sodium light. Token-driven so the light theme can darken the
+     hairlines instead of drawing white-on-white. */
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    radial-gradient(1300px 500px at 50% -12%, var(--halo), transparent 60%);
+  background-size: 44px 44px, 44px 44px, auto;
+  background-attachment: fixed;
   color: var(--foreground);
+  min-height: 100vh;
   font-family: 'Archivo', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -986,3 +1040,238 @@ h1.section-title, h2.section-title, h3.section-title, h4.section-title {
    `env()` values non-zero. */
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
 .safe-top { padding-top: env(safe-area-inset-top, 0px); }
+
+/* ============================================================================
+   FLOATING CHROME — back-to-top, floating contact, storage notice
+   Three components share the bottom edge, and on a phone all three must clear
+   the mobile tab bar (58px) plus the home-indicator inset. The offsets live
+   here as custom properties rather than in each component, because inline
+   styles cannot hold a media query and three hand-maintained copies of the
+   same number drift the first time one of them changes.
+   ========================================================================= */
+
+:root {
+  --chrome-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  --chrome-bottom-row2: calc(var(--chrome-bottom) + 52px);
+}
+
+/* Under 768px the tab bar is visible (see .phone-only / .desktop-only above),
+   so everything along the bottom edge has to start above it. */
+@media (max-width: 767px) {
+  :root {
+    --chrome-bottom: calc(env(safe-area-inset-bottom, 0px) + 70px);
+  }
+}
+
+/* The shared look for square chrome buttons: a carbon panel with a hard edge,
+   lifting to the accent on hover and focus. Matches .f1-card's vocabulary
+   rather than introducing a second one. */
+.pit-chrome-button {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color 200ms ease, border-color 200ms ease, background 200ms ease;
+}
+
+.pit-chrome-button:hover {
+  color: var(--foreground);
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.pit-chrome-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--foreground);
+}
+
+/* Chrome is furniture, not content — it has no place on a printed page.
+   The print block near the end of this file hides it wholesale. */
+
+/* Rows inside the floating contact panel. */
+.contact-link { transition: background 160ms ease, color 160ms ease; }
+.contact-link:hover { background: var(--surface); color: var(--accent); }
+.contact-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ============================================================================
+   LIGHT THEME — hardcoded greys
+   53 page/component files style themselves with inline `style={{}}` objects,
+   and ~160 of those set a near-white text colour by literal hex. Those are
+   invisible on paper. Rewriting 53 files was the alternative; this is the
+   same trick the font remap at the top of this file already uses, scoped to
+   the light theme so dark mode cannot be affected by it at all.
+
+   Each hex below was checked first: `grep` shows every one of them is used
+   ONLY as a text colour, never as a background or a border, so matching on
+   the style attribute cannot recolour a panel by accident. `#0B0C0E` is
+   deliberately absent — it is the ink on bright tyre-compound chips, and it
+   must stay dark in both themes.
+   ========================================================================= */
+
+:root[data-theme="light"] [style*="#9CA3AF"] { color: var(--muted) !important; }   /* 103 uses */
+:root[data-theme="light"] [style*="#8C939E"] { color: var(--muted) !important; }   /*  14 uses */
+:root[data-theme="light"] [style*="#D1D5DB"] { color: var(--foreground-soft) !important; } /* 26 uses */
+:root[data-theme="light"] [style*="#E5E7EB"] { color: var(--foreground-soft) !important; } /* 12 uses */
+:root[data-theme="light"] [style*="#EDEFF2"] { color: var(--foreground) !important; }      /*   4 uses */
+
+/* The grain overlay is a dark-room effect; on paper it reads as dirt. */
+:root[data-theme="light"] .grain-overlay { opacity: 0.25; }
+
+/* ============================================================================
+   STICKY TABLE HEADERS
+   Standings and results run past 20 rows, and the columns lose their labels
+   long before the table ends.
+
+   The catch: these tables are genuinely wider than the page — the driver
+   standings measure 1060px inside an 887px column at a 1280px viewport — so
+   their wrapper needs `overflow-x: auto`. CSS then computes `overflow-y` to
+   `auto` as well, which makes the wrapper the scroll container, and a header
+   sticking to a box that never scrolls vertically simply scrolls away with
+   the page.
+
+   So the wrapper is given a height cap instead, and the header sticks to
+   *that*. A table shorter than the cap never reaches it: no inner scrollbar
+   appears and nothing about the page changes. Only the long tables — the ones
+   this is for — become their own scroll pane. The cap is desktop-only,
+   because a nested scroll pane on a phone traps the page scroll.
+   ========================================================================= */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+@media (min-width: 768px) {
+  .table-scroll {
+    max-height: calc(100vh - 200px);
+  }
+}
+
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* Opaque, or the rows slide visibly underneath it. */
+  background: var(--card);
+  /* Sticky cells drop out of the table's border collapsing, so the rule under
+     the header has to be painted by the cell itself. */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* ============================================================================
+   PRINT
+   This is a data dashboard: someone printing a standings table or a race
+   result wants the numbers, not the chrome. Everything fixed, floating,
+   animated or decorative comes off, and the palette goes to ink-on-paper
+   regardless of the theme on screen.
+   ========================================================================= */
+
+@media print {
+  :root,
+  :root[data-theme="light"],
+  :root[data-theme="dark"] {
+    --background: #ffffff;
+    --surface: #ffffff;
+    --card: #ffffff;
+    --foreground: #000000;
+    --foreground-soft: #1a1a1a;
+    --muted: #444444;
+    --border: #999999;
+    --hairline: #cccccc;
+    --grid-line: transparent;
+    --halo: transparent;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    /* Backgrounds are dropped by default when printing; the tyre-compound and
+       team-colour chips carry meaning, so keep them. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Chrome, navigation and decoration — none of it is content. */
+  .grain-overlay,
+  .desktop-only,
+  .phone-only,
+  .skip-link,
+  .home-chip,
+  .pit-chrome-button,
+  .storage-notice,
+  .ticker-inner,
+  nav,
+  video,
+  canvas,
+  iframe,
+  [role="dialog"],
+  [aria-label="Local storage notice"],
+  [aria-label="Back to top"] {
+    display: none !important;
+  }
+
+  /* Fixed positioning stacks every overlay onto page one. */
+  [style*="position: fixed"],
+  [style*="position:fixed"] {
+    display: none !important;
+  }
+
+  main {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .glass-card,
+  .f1-card {
+    border: 1px solid #999 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  tr,
+  li {
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group; /* repeat headers on every printed page */
+  }
+
+  /* A printed link is a dead end unless its destination is on the page.
+     Internal hrefs are skipped — "/standings" tells a reader nothing. */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 9pt;
+    color: #555;
+    word-break: break-all;
+  }
+
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* FAQ answers — the prose inside a disclosure panel. Scoped so it cannot leak
+   into the data-dense pages, which set their own spacing everywhere. */
+.faq-answer p { margin: 0 0 10px; }
+.faq-answer p:last-child { margin-bottom: 0; }
+.faq-answer ul { margin: 0 0 10px; padding-left: 18px; }
+.faq-answer li { margin-bottom: 5px; }
+.faq-answer b { color: var(--foreground); font-weight: 700; }
+
+/* The appearance toggle shares the fixed top strip with the centred home chip.
+   Measured at 375px the three segments ended 2px from the chip — fine until a
+   longer label or a 320px phone, at which point they collide. Trimming the
+   padding and the icon under 480px buys ~15px of clearance without changing
+   how it looks on anything wider. */
+@media (max-width: 479px) {
+  .theme-toggle button { padding: 6px 5px !important; }
+  .theme-toggle svg { width: 12px; height: 12px; }
+}

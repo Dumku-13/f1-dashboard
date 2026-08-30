@@ -12,6 +12,7 @@ import { useApi, useApiList } from '@/lib/api/client'
 import { useStandings } from '@/lib/api/hooks'
 import KalshiOdds from '@/components/predictor/KalshiOdds'
 import type { DriverStanding } from '@/lib/types'
+import { authHeaders } from '@/lib/auth'
 
 const YEAR = 2026
 const CLAIMED_KEY = 'f1.predictor.claimed'
@@ -241,7 +242,7 @@ export default function PredictorPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/predictor/predictions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name, year: YEAR, round: weekend.round, ...picks }),
       })
       if (!res.ok) {

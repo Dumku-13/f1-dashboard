@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Download, ExternalLink, CalendarPlus, Check } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
+import CopyButton from '@/components/ui/CopyButton'
 import { useSeason } from '@/lib/season'
 
 const GOOGLE_IMPORT_URL = 'https://calendar.google.com/calendar/u/0/r/settings/export'
@@ -61,6 +62,10 @@ export default function CalendarSyncModal({ target, onClose }: Props) {
   // round 5 of a different year.
   const [year] = useSeason()
   const icsUrl = `${BACKEND_URL}/api/sessions/calendar/${year}/ics${target.round ? `?round=${target.round}` : ''}`
+  // BACKEND_URL is '' on a public host (everything goes through the /api/*
+  // rewrite), so the path alone is relative — a subscription link has to be
+  // absolute or the calendar app has nothing to resolve it against.
+  const subscribeUrl = typeof window === 'undefined' ? icsUrl : new URL(icsUrl, window.location.origin).toString()
   const scope = target.round ? `${target.eventName} weekend` : `full ${year} season`
 
   const download = () => {
@@ -198,6 +203,29 @@ export default function CalendarSyncModal({ target, onClose }: Props) {
             }}>
               <Download size={13} /> Download .ics file
             </button>
+          </div>
+
+          {/* Subscribe rather than import. A downloaded .ics is a snapshot —
+              it will not follow a session time that moves, which they do. The
+              same URL added as a *subscription* keeps updating, and every
+              calendar app takes one; they just all bury the option, so the
+              link has to be copyable. */}
+          <div style={{ marginTop: '10px', padding: '14px', borderRadius: '2px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <h2 className="section-title" style={{ fontSize: '11px', marginBottom: '4px' }}>Subscribe (stays up to date)</h2>
+            <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '10px', lineHeight: 1.6 }}>
+              Paste this into your calendar app&apos;s &ldquo;subscribe to calendar&rdquo; box and session
+              times will keep themselves current instead of going stale.
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <code className="font-num" style={{
+                flex: '1 1 200px', minWidth: 0, fontSize: '11px', color: 'var(--muted)',
+                background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '2px',
+                padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {subscribeUrl}
+              </code>
+              <CopyButton value={subscribeUrl} label="Copy" describes="the calendar subscription link" />
+            </div>
           </div>
         </motion.div>
       </motion.div>

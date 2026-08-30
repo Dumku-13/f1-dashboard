@@ -184,7 +184,7 @@ function SeasonResults({ year }: { year: number }) {
             <h2 className="section-title" style={{ marginBottom: 14 }}>
               {session} Classification
             </h2>
-            <div style={{ overflowX: 'auto' }}>
+            <div className="table-scroll">
               <table className="f1-table f1-table--anchored">
                 <thead>
                   <tr>

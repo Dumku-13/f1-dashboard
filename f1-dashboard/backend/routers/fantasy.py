@@ -17,8 +17,10 @@ from pathlib import Path
 
 import fastf1
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
+
+from auth_guard import verify_identity
 from utils import cache_get, cache_set
 from data.teams import TEAM_NAME_MAP
 
@@ -128,6 +130,8 @@ _init()
 
 
 class TeamIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str = Field(min_length=1, max_length=24)
     year: int
     round: int = Field(ge=1, le=30)
@@ -238,7 +242,7 @@ async def get_boosts():
 
 
 @router.post("/team")
-async def upsert_team(t: TeamIn):
+async def upsert_team(t: TeamIn, authorization: str | None = Header(default=None)):
     rounds = await asyncio.to_thread(_schedule, t.year)
     rnd = next((r for r in rounds if r["round"] == t.round), None)
     if rnd is None:
@@ -247,9 +251,9 @@ async def upsert_team(t: TeamIn):
     if lock and datetime.fromisoformat(lock) <= _now():
         raise HTTPException(409, "team changes are locked — the race has started")
 
-    username = t.username.strip()
-    if not username:
-        raise HTTPException(400, "username required")
+    # Same upsert-by-username shape as predictor: an unbound name is a licence
+    # to wreck someone else's team before lights out.
+    username = verify_identity(t.username, authorization)
 
     drivers = [d.strip().upper() for d in t.drivers]
     if len(drivers) != TEAM_SIZE or len(set(drivers)) != TEAM_SIZE:

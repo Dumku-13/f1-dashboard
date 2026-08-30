@@ -16,8 +16,10 @@ from pathlib import Path
 
 import fastf1
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
+
+from auth_guard import verify_identity
 from utils import cache_get, cache_set
 
 router = APIRouter()
@@ -96,6 +98,8 @@ _init()
 
 
 class PredictionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str = Field(min_length=1, max_length=24)
     year: int
     round: int = Field(ge=1, le=30)
@@ -206,7 +210,7 @@ async def list_rounds(year: int = Query(2026)):
 
 
 @router.post("/predictions")
-async def submit_prediction(p: PredictionIn):
+async def submit_prediction(p: PredictionIn, authorization: str | None = Header(default=None)):
     rounds = await asyncio.to_thread(_schedule, p.year)
     rnd = next((r for r in rounds if r["round"] == p.round), None)
     if rnd is None:
@@ -215,9 +219,9 @@ async def submit_prediction(p: PredictionIn):
     if lock and datetime.fromisoformat(lock) <= _now():
         raise HTTPException(409, "predictions are locked — qualifying has started")
 
-    username = p.username.strip()
-    if not username:
-        raise HTTPException(400, "username required")
+    # Predictions overwrite by (username, year, round) — without a bound name
+    # anyone could rewrite a rival's picks right up to the lock.
+    username = verify_identity(p.username, authorization)
 
     def norm(v: str) -> str:
         return v.strip().upper()
