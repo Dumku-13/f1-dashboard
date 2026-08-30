@@ -19,11 +19,12 @@ routers/auth.py) survives intact.
 
 import sqlite3
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
-# The token -> user lookup lives in the auth router: one implementation, so the
-# sessions/users join and its expiry rule can't drift between call sites.
-from routers.auth import bearer_token, db, user_for_token
+# Session resolution lives in the auth router: one implementation, so the
+# sessions/users join, the expiry rule and the CSRF check can't drift between
+# call sites.
+from routers.auth import db, enforce_csrf, resolve_caller
 
 
 def _account_for_name(name: str) -> sqlite3.Row | None:
@@ -39,12 +40,16 @@ def _account_for_name(name: str) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def verify_identity(username: str, authorization: str | None) -> str:
+def verify_identity(username: str, request: Request) -> str:
     """Bind a claimed paddock name to the caller; return the name to write.
 
     Guests get their name back untouched. A signed-in user gets the account's
     canonical spelling instead of whatever casing they typed, so one account
     can't fork into two identities across the feature tables.
+
+    Takes the whole Request rather than one header because the session now
+    arrives as an httpOnly cookie, and a cookie-authenticated write also has
+    to clear the CSRF check before it counts as this user's intent.
     """
     name = (username or "").strip()
     if not name:
@@ -54,14 +59,14 @@ def verify_identity(username: str, authorization: str | None) -> str:
     if account is None:
         return name  # unregistered — the guest path, open on purpose
 
-    token = bearer_token(authorization)
-    if token is None:
+    caller = resolve_caller(request)
+    if caller is None:
         raise HTTPException(401, "that paddock name belongs to an account — sign in to use it")
-
-    user = user_for_token(token)
-    if user is None:
-        raise HTTPException(401, "session expired — sign in again")
-    if user["id"] != account["id"]:
+    # Order matters: prove the request came from our own page BEFORE acting on
+    # who it claims to be. A valid session riding a forged cross-site request
+    # is exactly the case this rejects.
+    enforce_csrf(request, caller)
+    if caller.user["id"] != account["id"]:
         raise HTTPException(403, "that paddock name isn't yours — race under your own")
 
     return account["username"]

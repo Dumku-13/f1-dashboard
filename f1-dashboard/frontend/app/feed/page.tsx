@@ -121,6 +121,7 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name, ...data }),
       })
@@ -144,6 +145,7 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}/like`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name }),
       })
@@ -161,6 +163,7 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/follow`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ follower: name, followee: who }),
       })
@@ -175,7 +178,7 @@ export default function FeedPage() {
   const deletePost = async (post: FeedPost) => {
     if (!name) return
     try {
-      const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}?username=${encodeURIComponent(name)}`, { method: 'DELETE', headers: authHeaders() })
+      const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}?username=${encodeURIComponent(name)}`, { method: 'DELETE', credentials: 'include', headers: authHeaders() })
       if (!res.ok) setActionError(await readDetail(res, "Couldn't delete that post."))
       if (res.ok) {
         mutatePosts(prev => (prev || [])
@@ -190,6 +193,7 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name, text: `↻ ${post.username}`, repost_of: post.id }),
       })

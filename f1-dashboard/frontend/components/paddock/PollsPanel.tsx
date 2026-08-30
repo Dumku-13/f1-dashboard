@@ -53,6 +53,7 @@ export default function PollsPanel({ channel, username }: { channel: string; use
     setError('')
     const res = await fetch(`${BACKEND_URL}/api/community/polls`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ channel, username, question: question.trim(), options: opts }),
     }).catch(() => null)
@@ -72,6 +73,7 @@ export default function PollsPanel({ channel, username }: { channel: string; use
     if (poll.closed || !username) return
     const res = await fetch(`${BACKEND_URL}/api/community/polls/${poll.id}/vote`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ username, option_idx: idx }),
     }).catch(() => null)
@@ -82,7 +84,7 @@ export default function PollsPanel({ channel, username }: { channel: string; use
   }
 
   const close = async (poll: Poll) => {
-    await fetch(`${BACKEND_URL}/api/community/polls/${poll.id}/close?username=${encodeURIComponent(username)}`, { method: 'POST', headers: authHeaders() }).catch(() => null)
+    await fetch(`${BACKEND_URL}/api/community/polls/${poll.id}/close?username=${encodeURIComponent(username)}`, { method: 'POST', credentials: 'include', headers: authHeaders() }).catch(() => null)
     refresh()
   }
 

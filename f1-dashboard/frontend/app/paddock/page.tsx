@@ -238,6 +238,7 @@ export default function PaddockPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/community/messages`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ channel: active, username: name, text, kind }),
       })
@@ -272,6 +273,7 @@ export default function PaddockPage() {
     if (!name) return
     await fetch(`${BACKEND_URL}/api/community/reactions`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ message_id: messageId, username: name, emoji }),
     }).catch(() => null)
@@ -282,7 +284,7 @@ export default function PaddockPage() {
     if (!name) return
     const res = await fetch(
       `${BACKEND_URL}/api/community/messages/${messageId}/pin?username=${encodeURIComponent(name)}`,
-      { method: 'POST', headers: authHeaders() },
+      { method: 'POST', credentials: 'include', headers: authHeaders() },
     ).catch(() => null)
     // Only mirror the change locally if the backend accepted it — the pin is
     // author-only, so someone else's message will come back 403.

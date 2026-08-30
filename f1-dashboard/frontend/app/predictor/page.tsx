@@ -242,6 +242,7 @@ export default function PredictorPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/predictor/predictions`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name, year: YEAR, round: weekend.round, ...picks }),
       })

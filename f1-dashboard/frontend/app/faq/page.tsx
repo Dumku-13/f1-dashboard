@@ -98,8 +98,13 @@ const ENTRIES: Entry[] = [
         <p>
           <b>In this browser</b>, and only this browser: your paddock name (<K>f1.username</K>),
           PitCoins and shop unlocks, achievement progress, alert and notification settings, your
-          light/dark choice (<K>f1.appearance</K>), your team accent colour (<K>f1.theme</K>), and —
-          if you sign in — a session token (<K>f1.auth.token</K>). Clearing site data removes all of it.
+          light/dark choice (<K>f1.appearance</K>) and your team accent colour (<K>f1.theme</K>).
+          Clearing site data removes all of it.
+        </p>
+        <p>
+          If you sign in, the session itself is a cookie marked <K>HttpOnly</K> — which means this
+          site&apos;s own JavaScript cannot read it, and neither can anything injected into the page.
+          It is not in localStorage, and it is never handed to the page in any readable form.
         </p>
         <p>
           <b>On the server</b>: only what you deliberately submit — feed posts and comments,
@@ -107,7 +112,7 @@ const ENTRIES: Entry[] = [
           against your paddock name. If you register, an account row holds your name, an optional
           email, and a salted PBKDF2 hash of your password. The password itself is never stored.
         </p>
-        <p>There are no third-party cookies, no analytics scripts, and no ad trackers anywhere on the site.</p>
+        <p>The only cookies are the sign-in session and its CSRF token, both strictly functional. There are no third-party cookies, no analytics scripts, and no ad trackers anywhere on the site.</p>
       </>
     ),
   },

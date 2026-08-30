@@ -80,6 +80,7 @@ export default function PostCard({
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}/comments`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: myUsername, text }),
       })
@@ -114,6 +115,7 @@ export default function PostCard({
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}/report`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: myUsername, reason }),
       })

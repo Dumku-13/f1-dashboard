@@ -13,7 +13,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth_guard import verify_identity
@@ -188,11 +188,11 @@ def messages(
 
 
 @router.post("/messages")
-def post_message(msg: MessageIn, authorization: str | None = Header(default=None)):
+def post_message(msg: MessageIn, request: Request):
     channel = msg.channel.strip().lower()
     if not _CHANNEL_RE.match(channel):
         raise HTTPException(400, "invalid channel")
-    username = verify_identity(msg.username, authorization)
+    username = verify_identity(msg.username, request)
     text = msg.text.strip()
     kind = msg.kind if msg.kind in MESSAGE_KINDS else "text"
     if not text:
@@ -223,12 +223,12 @@ def post_message(msg: MessageIn, authorization: str | None = Header(default=None
 @router.post("/messages/{message_id}/pin")
 def toggle_pin(
     message_id: int,
+    request: Request,
     username: str = Query(..., max_length=24),
-    authorization: str | None = Header(default=None),
 ):
     # The ownership rule below only binds once the name does: until the caller
     # has proved the name is theirs, `username` is just a string they chose.
-    actor = verify_identity(username, authorization)
+    actor = verify_identity(username, request)
     with db() as conn:
         row = conn.execute(
             "SELECT pinned, username FROM messages WHERE id = ?", (message_id,)
@@ -264,8 +264,8 @@ def pinned_messages(channel: str = Query(..., max_length=40)):
 # ── Reactions ────────────────────────────────────────────────────────────────
 
 @router.post("/reactions")
-def toggle_reaction(r: ReactionIn, authorization: str | None = Header(default=None)):
-    username = verify_identity(r.username, authorization)
+def toggle_reaction(r: ReactionIn, request: Request):
+    username = verify_identity(r.username, request)
     with db() as conn:
         exists = conn.execute(
             "SELECT id FROM reactions WHERE message_id = ? AND username = ? AND emoji = ?",
@@ -336,11 +336,11 @@ def _poll_payload(conn, poll_row, username: str) -> dict:
 
 
 @router.post("/polls")
-def create_poll(p: PollIn, authorization: str | None = Header(default=None)):
+def create_poll(p: PollIn, request: Request):
     channel = p.channel.strip().lower()
     if not _CHANNEL_RE.match(channel):
         raise HTTPException(400, "invalid channel")
-    username = verify_identity(p.username, authorization)
+    username = verify_identity(p.username, request)
     options = [o.strip()[:60] for o in p.options if o.strip()]
     if len(options) < 2:
         raise HTTPException(400, "a poll needs at least 2 options")
@@ -375,10 +375,10 @@ def list_polls(
 
 
 @router.post("/polls/{poll_id}/vote")
-def vote_poll(poll_id: int, v: VoteIn, authorization: str | None = Header(default=None)):
+def vote_poll(poll_id: int, v: VoteIn, request: Request):
     # One vote per username is the whole integrity model of a poll; without a
     # bound name, "one vote each" means "one vote per name you can type".
-    username = verify_identity(v.username, authorization)
+    username = verify_identity(v.username, request)
     with db() as conn:
         poll = conn.execute("SELECT * FROM polls WHERE id = ?", (poll_id,)).fetchone()
         if poll is None:
@@ -402,10 +402,10 @@ def vote_poll(poll_id: int, v: VoteIn, authorization: str | None = Header(defaul
 @router.post("/polls/{poll_id}/close")
 def close_poll(
     poll_id: int,
+    request: Request,
     username: str = Query(..., max_length=24),
-    authorization: str | None = Header(default=None),
 ):
-    actor = verify_identity(username, authorization)
+    actor = verify_identity(username, request)
     with db() as conn:
         poll = conn.execute("SELECT * FROM polls WHERE id = ?", (poll_id,)).fetchone()
         if poll is None:

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import fastf1
 import pandas as pd
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth_guard import verify_identity
@@ -242,7 +242,7 @@ async def get_boosts():
 
 
 @router.post("/team")
-async def upsert_team(t: TeamIn, authorization: str | None = Header(default=None)):
+async def upsert_team(t: TeamIn, request: Request):
     rounds = await asyncio.to_thread(_schedule, t.year)
     rnd = next((r for r in rounds if r["round"] == t.round), None)
     if rnd is None:
@@ -253,7 +253,7 @@ async def upsert_team(t: TeamIn, authorization: str | None = Header(default=None
 
     # Same upsert-by-username shape as predictor: an unbound name is a licence
     # to wreck someone else's team before lights out.
-    username = verify_identity(t.username, authorization)
+    username = verify_identity(t.username, request)
 
     drivers = [d.strip().upper() for d in t.drivers]
     if len(drivers) != TEAM_SIZE or len(set(drivers)) != TEAM_SIZE:

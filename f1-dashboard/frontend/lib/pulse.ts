@@ -28,6 +28,7 @@ export function logPulse(kind: 'view' | 'pick' | 'mention', driver: string) {
   try {
     fetch(`${BACKEND_URL}/api/popularity/event`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ kind, driver: drv, username: getUsername() || undefined }),
     }).catch(() => null)

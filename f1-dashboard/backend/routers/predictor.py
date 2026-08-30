@@ -16,7 +16,7 @@ from pathlib import Path
 
 import fastf1
 import pandas as pd
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth_guard import verify_identity
@@ -210,7 +210,7 @@ async def list_rounds(year: int = Query(2026)):
 
 
 @router.post("/predictions")
-async def submit_prediction(p: PredictionIn, authorization: str | None = Header(default=None)):
+async def submit_prediction(p: PredictionIn, request: Request):
     rounds = await asyncio.to_thread(_schedule, p.year)
     rnd = next((r for r in rounds if r["round"] == p.round), None)
     if rnd is None:
@@ -221,7 +221,7 @@ async def submit_prediction(p: PredictionIn, authorization: str | None = Header(
 
     # Predictions overwrite by (username, year, round) — without a bound name
     # anyone could rewrite a rival's picks right up to the lock.
-    username = verify_identity(p.username, authorization)
+    username = verify_identity(p.username, request)
 
     def norm(v: str) -> str:
         return v.strip().upper()

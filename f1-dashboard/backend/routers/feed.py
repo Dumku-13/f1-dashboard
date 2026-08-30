@@ -12,7 +12,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth_guard import verify_identity
@@ -265,8 +265,8 @@ def _visible_where(viewer: str) -> tuple[str, tuple]:
 # ── Posts ────────────────────────────────────────────────────────────────────
 
 @router.post("/posts")
-def create_post(p: PostIn, authorization: str | None = Header(default=None)):
-    username = verify_identity(p.username, authorization)
+def create_post(p: PostIn, request: Request):
+    username = verify_identity(p.username, request)
     text = p.text.strip()
     if not text:
         raise HTTPException(400, "a post needs something in it")
@@ -378,13 +378,13 @@ def list_posts(
 @router.delete("/posts/{post_id}")
 def delete_post(
     post_id: int,
+    request: Request,
     username: str = Query(..., max_length=24),
-    authorization: str | None = Header(default=None),
 ):
     # The ownership test below is only worth anything once the name has been
     # bound to the caller — comparing a row against an attacker-supplied query
     # parameter is a check that passes for whoever wants it to.
-    actor = verify_identity(username, authorization)
+    actor = verify_identity(username, request)
     with db() as conn:
         row = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
         if row is None:
@@ -403,8 +403,8 @@ def delete_post(
 # ── Likes ────────────────────────────────────────────────────────────────────
 
 @router.post("/posts/{post_id}/like")
-def toggle_like(post_id: int, body: LikeIn, authorization: str | None = Header(default=None)):
-    username = verify_identity(body.username, authorization)
+def toggle_like(post_id: int, body: LikeIn, request: Request):
+    username = verify_identity(body.username, request)
     with db() as conn:
         post = conn.execute("SELECT id FROM posts WHERE id = ?", (post_id,)).fetchone()
         if post is None:
@@ -444,9 +444,9 @@ def list_comments(post_id: int):
 
 @router.post("/posts/{post_id}/comments")
 def create_comment(
-    post_id: int, body: CommentIn, authorization: str | None = Header(default=None)
+    post_id: int, body: CommentIn, request: Request
 ):
-    username = verify_identity(body.username, authorization)
+    username = verify_identity(body.username, request)
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "a comment needs something in it")
@@ -475,10 +475,10 @@ def create_comment(
 # ── Follows ──────────────────────────────────────────────────────────────────
 
 @router.post("/follow")
-def toggle_follow(body: FollowIn, authorization: str | None = Header(default=None)):
+def toggle_follow(body: FollowIn, request: Request):
     # Only the follower is the actor here — you may follow anyone, but you may
     # not make someone else follow.
-    follower = verify_identity(body.follower, authorization)
+    follower = verify_identity(body.follower, request)
     followee = body.followee.strip()
     if not followee:
         raise HTTPException(400, "followee required")
@@ -534,10 +534,10 @@ def follow_suggestions(username: str = Query("", max_length=24)):
 # ── Reports ──────────────────────────────────────────────────────────────────
 
 @router.post("/posts/{post_id}/report")
-def report_post(post_id: int, body: ReportIn, authorization: str | None = Header(default=None)):
+def report_post(post_id: int, body: ReportIn, request: Request):
     # Reports hide a post at REPORT_HIDE_THRESHOLD distinct reporters, so an
     # unbound name here is a one-request takedown of anyone's post.
-    username = verify_identity(body.username, authorization)
+    username = verify_identity(body.username, request)
     reason = body.reason.strip()
     if not reason:
         raise HTTPException(400, "a report needs a reason")

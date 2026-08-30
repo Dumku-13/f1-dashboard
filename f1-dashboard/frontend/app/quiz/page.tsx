@@ -165,6 +165,7 @@ export default function QuizPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/quiz/submit`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name, answers: nextAnswers }),
       })

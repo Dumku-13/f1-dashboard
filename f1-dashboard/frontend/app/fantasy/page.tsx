@@ -244,6 +244,7 @@ export default function FantasyPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/fantasy/team`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           username: name, year: YEAR, round: nextRound.round,

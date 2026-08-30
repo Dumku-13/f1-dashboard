@@ -11,14 +11,16 @@ paddock name adopts that history.
 """
 
 import hashlib
+import os
 import re
 import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NamedTuple
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter()
@@ -29,6 +31,34 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9_\-]{3,24}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PBKDF2_ITERATIONS = 200_000
 SESSION_TTL_S = 60 * 60 * 24 * 30  # 30 days
+
+# ── Session transport ────────────────────────────────────────────────────────
+#
+# The session token lives in an httpOnly cookie, not in localStorage. A token
+# JavaScript can read is a token any XSS on the page can post to an attacker,
+# and this app renders user-submitted text on the feed and in chat — exactly
+# the surface where that matters.
+#
+# Cookies buy that at the cost of CSRF: the browser attaches them to
+# cross-site requests too, which a bearer token was immune to. So the session
+# cookie is paired with a second, deliberately READABLE cookie whose value the
+# client must echo back in a header on every unsafe request. A cross-origin
+# attacker can cause the session cookie to be sent, but cannot read the CSRF
+# cookie to echo it — the same-origin policy stops them — so the echo is proof
+# the request came from our own page. `SameSite=lax` blocks most of it before
+# this even matters; the double-submit is what covers the rest.
+SESSION_COOKIE = "f1_session"
+CSRF_COOKIE = "f1_csrf"
+CSRF_HEADER = "x-csrf-token"
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# Secure by default. `localhost` is treated as a secure context by every
+# current browser, so this holds for local development too; set
+# SESSION_COOKIE_SECURE=0 only when serving the app over plain http on a real
+# hostname (a LAN IP on a phone, say), and know that the cookie is then
+# visible to anything on the wire.
+COOKIE_SECURE = (os.getenv("SESSION_COOKIE_SECURE", "1").strip().lower()
+                 not in {"0", "false", "no"})
 
 # The columns a user row is allowed to leave this module with. Never SELECT *
 # into a response path: a column added later (a reset token, a 2FA secret)
@@ -104,6 +134,16 @@ def _init():
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)")
+        # CREATE TABLE IF NOT EXISTS won't add a column to a table that already
+        # exists, so the csrf column needs an explicit migration for any
+        # database created before cookie sessions landed.
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
+        if "csrf" not in columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN csrf TEXT")
+            # Sessions issued before this cannot produce a CSRF echo, so they
+            # are dead weight — better a re-login than a session that fails
+            # every write with a confusing 403.
+            conn.execute("DELETE FROM sessions")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS auth_attempts (
@@ -141,54 +181,130 @@ def _public_user(row: sqlite3.Row) -> dict:
     }
 
 
-def _issue_session(conn, user_id: int) -> str:
+class IssuedSession(NamedTuple):
+    token: str
+    csrf: str
+
+
+def _issue_session(conn, user_id: int) -> IssuedSession:
+    """Mint a session and its paired CSRF secret.
+
+    Two independent random values, not one derived from the other: if the
+    readable half could be computed from the httpOnly half (or vice versa),
+    the double-submit check would prove nothing.
+    """
     token = secrets.token_urlsafe(32)
+    csrf = secrets.token_urlsafe(24)
     now = time.time()
     conn.execute(
-        "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        (token, user_id, now, now + SESSION_TTL_S),
+        "INSERT INTO sessions (token, user_id, created_at, expires_at, csrf) VALUES (?, ?, ?, ?, ?)",
+        (token, user_id, now, now + SESSION_TTL_S, csrf),
     )
     # Housekeeping: drop this user's expired sessions
     conn.execute("DELETE FROM sessions WHERE user_id = ? AND expires_at < ?", (user_id, now))
-    return token
+    return IssuedSession(token, csrf)
+
+
+def set_session_cookies(response: Response, session: IssuedSession) -> None:
+    """Attach both halves of the session to the response.
+
+    Path=/ so one session covers every route, and Max-Age matched to the
+    server-side expiry so the browser stops sending a cookie the server has
+    already stopped honouring.
+    """
+    common = dict(max_age=SESSION_TTL_S, path="/", samesite="lax", secure=COOKIE_SECURE)
+    # httponly: JavaScript must never be able to read this one. That is the
+    # entire point of the change.
+    response.set_cookie(SESSION_COOKIE, session.token, httponly=True, **common)
+    # NOT httponly, on purpose — the page has to read it to echo it back.
+    # It authenticates nothing by itself; it only proves same-origin.
+    response.set_cookie(CSRF_COOKIE, session.csrf, httponly=False, **common)
+
+
+def clear_session_cookies(response: Response) -> None:
+    # Same path/samesite/secure as when they were set: a delete that does not
+    # match the original attributes leaves the cookie in place.
+    for name in (SESSION_COOKIE, CSRF_COOKIE):
+        response.delete_cookie(name, path="/", samesite="lax", secure=COOKIE_SECURE)
 
 
 def bearer_token(authorization: str | None) -> str | None:
-    """Pull the opaque token out of an `Authorization: Bearer <token>` header.
-
-    Split out so callers that treat a missing header differently from a bad
-    one (auth_guard does) don't have to re-parse the header themselves.
-    """
+    """Pull the opaque token out of an `Authorization: Bearer <token>` header."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
     return authorization[7:].strip() or None
 
 
-def user_for_token(token: str | None) -> sqlite3.Row | None:
-    """Resolve a session token to its user row, or None if it resolves to
-    nobody. THE place the sessions/users join and the expiry test live — the
-    guard module calls this rather than carrying a second copy of the SQL."""
+class Caller(NamedTuple):
+    user: sqlite3.Row
+    csrf: str | None
+    #: "cookie" or "bearer" — decides whether the CSRF echo is required.
+    source: str
+
+
+def _session_and_user(token: str | None) -> tuple[sqlite3.Row, str | None] | None:
+    """Resolve a session token to (user row, csrf secret).
+
+    THE place the sessions/users join and the expiry test live — everything
+    else calls this rather than carrying a second copy of the SQL.
+    """
     if not token:
         return None
     with db() as conn:
-        return conn.execute(
+        row = conn.execute(
             f"""
-            SELECT {_USER_PUBLIC_COLUMNS_JOINED}
+            SELECT {_USER_PUBLIC_COLUMNS_JOINED}, s.csrf AS session_csrf
             FROM sessions s JOIN users u ON u.id = s.user_id
             WHERE s.token = ? AND s.expires_at > ?
             """,
             (token, time.time()),
         ).fetchone()
+    return (row, row["session_csrf"]) if row is not None else None
 
 
-def _user_from_token(authorization: str | None) -> sqlite3.Row:
-    token = bearer_token(authorization)
-    if token is None:
+def resolve_caller(request: Request) -> Caller | None:
+    """Who is making this request, if anyone.
+
+    The cookie is checked first because that is how the browser authenticates.
+    The Authorization header is still accepted for non-browser callers (curl,
+    the /docs explorer, anything scripted); it carries no CSRF risk, because a
+    cross-site page cannot set that header without the target's own CORS
+    permission.
+    """
+    token = request.cookies.get(SESSION_COOKIE)
+    source = "cookie"
+    if not token:
+        token = bearer_token(request.headers.get("authorization"))
+        source = "bearer"
+    if not token:
+        return None
+    found = _session_and_user(token)
+    if found is None:
+        return None
+    user, csrf = found
+    return Caller(user, csrf, source)
+
+
+def enforce_csrf(request: Request, caller: Caller) -> None:
+    """Require the double-submit echo on cookie-authenticated writes."""
+    if caller.source != "cookie":
+        return
+    if request.method.upper() not in UNSAFE_METHODS:
+        return
+    sent = request.headers.get(CSRF_HEADER)
+    # compare_digest, not ==: the comparison is against a secret, and a
+    # short-circuiting compare leaks how much of a guess was right.
+    if not sent or not caller.csrf or not secrets.compare_digest(sent, caller.csrf):
+        raise HTTPException(403, "stale session — reload the page and try again")
+
+
+def current_user(request: Request) -> sqlite3.Row:
+    """The signed-in user, or 401. Enforces CSRF on unsafe methods."""
+    caller = resolve_caller(request)
+    if caller is None:
         raise HTTPException(401, "not signed in")
-    row = user_for_token(token)
-    if row is None:
-        raise HTTPException(401, "session expired — sign in again")
-    return row
+    enforce_csrf(request, caller)
+    return caller.user
 
 
 def _client_ip(request: Request) -> str:
@@ -247,7 +363,7 @@ class ProfileIn(BaseModel):
 
 
 @router.post("/register")
-def register(body: RegisterIn, request: Request):
+def register(body: RegisterIn, request: Request, response: Response):
     username = body.username.strip()
     if not USERNAME_RE.match(username):
         raise HTTPException(400, "username: 3-24 letters, numbers, _ or -")
@@ -283,13 +399,16 @@ def register(body: RegisterIn, request: Request):
             if "email" in msg:
                 raise HTTPException(409, "that email is already registered")
             raise HTTPException(409, "that paddock name is taken — sign in instead?")
-        token = _issue_session(conn, cur.lastrowid)
+        session = _issue_session(conn, cur.lastrowid)
         row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
-    return {"token": token, "user": _public_user(row)}
+    set_session_cookies(response, session)
+    # No token in the body. It goes back as an httpOnly cookie and nowhere
+    # else — handing it to JavaScript here would undo the whole exercise.
+    return {"user": _public_user(row)}
 
 
 @router.post("/login")
-def login(body: LoginIn, request: Request):
+def login(body: LoginIn, request: Request, response: Response):
     name = body.username.strip()
     ip = _client_ip(request)
     now = time.time()
@@ -321,7 +440,7 @@ def login(body: LoginIn, request: Request):
 
         if ok:
             conn.execute("UPDATE users SET last_login = ? WHERE id = ?", (now, row["id"]))
-            token = _issue_session(conn, row["id"])
+            session = _issue_session(conn, row["id"])
             # Signing in successfully clears the name's failure budget: the
             # person who owns it just proved it, and leaving the tally to
             # expire on its own would lock them out of their next attempt.
@@ -335,25 +454,31 @@ def login(body: LoginIn, request: Request):
     # Both raised outside the block so the attempt row above is committed.
     if not ok:
         raise HTTPException(401, "wrong paddock name or password")
-    return {"token": token, "user": _public_user(row)}
+    set_session_cookies(response, session)
+    return {"user": _public_user(row)}
 
 
 @router.post("/logout")
-def logout(authorization: str | None = Header(default=None)):
-    if authorization and authorization.startswith("Bearer "):
+def logout(request: Request, response: Response):
+    # Deliberately CSRF-exempt and deliberately always 200: being logged out by
+    # a hostile page is a nuisance, not a compromise, and refusing to clear a
+    # session you cannot prove owns the token would leave dead cookies behind.
+    token = request.cookies.get(SESSION_COOKIE) or bearer_token(request.headers.get("authorization"))
+    if token:
         with db() as conn:
-            conn.execute("DELETE FROM sessions WHERE token = ?", (authorization[7:].strip(),))
+            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    clear_session_cookies(response)
     return {"ok": True}
 
 
 @router.get("/me")
-def me(authorization: str | None = Header(default=None)):
-    return _public_user(_user_from_token(authorization))
+def me(request: Request):
+    return _public_user(current_user(request))
 
 
 @router.patch("/me")
-def update_me(body: ProfileIn, authorization: str | None = Header(default=None)):
-    user = _user_from_token(authorization)
+def update_me(body: ProfileIn, request: Request):
+    user = current_user(request)
     email = body.email.strip().lower() if body.email else None
     if email and not EMAIL_RE.match(email):
         raise HTTPException(400, "that email doesn't look right")

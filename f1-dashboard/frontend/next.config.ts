@@ -123,7 +123,14 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/:path*",
-        has: [{ type: "header", key: "x-forwarded-proto", value: "http" }],
+        has: [
+          { type: "header", key: "x-forwarded-proto", value: "http" },
+          // `:host` in the destination is only bound if something CAPTURES it.
+          // Without this named group the destination fails to resolve at
+          // request time and the redirect 500s instead of redirecting —
+          // which is exactly what it did before this line existed.
+          { type: "host", value: "(?<host>.*)" },
+        ],
         destination: "https://:host/:path*",
         permanent: true,
       },

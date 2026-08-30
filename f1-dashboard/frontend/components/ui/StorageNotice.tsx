@@ -1,16 +1,17 @@
 'use client'
 
 /**
- * The "cookie banner" — except this app sets no cookies and runs no
- * third-party analytics, so a consent wall would be theatre. What it actually
- * does is keep things in *your* browser's localStorage: paddock name, wallet,
- * achievements, theme, and the auth token when you sign in. None of that
- * leaves the device except the requests you make by using the site.
+ * The "cookie banner" — except there is no tracking to consent to. Signing in
+ * sets two cookies and they are both strictly functional: the httpOnly session
+ * itself and the CSRF token that protects it. Everything else lives in this
+ * browser's localStorage — paddock name, wallet, achievements, theme — and
+ * none of it leaves the device except in the requests you make by using the
+ * site. No third-party analytics, no ad networks, no cross-site anything.
  *
  * So this says that, once, and gets out of the way. There is no "reject"
- * button because there is nothing to reject — the storage listed above is what
- * makes the feature work at all, and offering a fake choice is worse than
- * offering none.
+ * button because there is nothing to reject: strictly-necessary cookies and
+ * your own local settings are what make the features work at all, and offering
+ * a fake choice is worse than offering none.
  */
 
 import { useEffect, useState } from 'react'
@@ -69,8 +70,8 @@ export default function StorageNotice() {
           Stays in this browser
         </div>
         <p style={{ margin: 0, fontSize: '12px', lineHeight: 1.5, color: 'var(--muted)' }}>
-          No cookies, no trackers. Your paddock name, settings and progress are
-          saved locally on this device.{' '}
+          No trackers, no third-party cookies. Your settings and progress are saved
+          on this device; signing in adds a session cookie and nothing more.{' '}
           <Link href="/faq" style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
             What&apos;s stored
           </Link>

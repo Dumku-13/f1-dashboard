@@ -8,7 +8,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth_guard import verify_identity
@@ -63,7 +63,7 @@ class EventIn(BaseModel):
 
 
 @router.post("/event", status_code=204)
-async def log_event(body: EventIn, authorization: str | None = Header(default=None)):
+async def log_event(body: EventIn, request: Request):
     kind = body.kind.strip().lower()
     if kind not in VALID_KINDS:
         raise HTTPException(400, "invalid kind")
@@ -76,7 +76,7 @@ async def log_event(body: EventIn, authorization: str | None = Header(default=No
     # no name means "anon", a name means prove it. Popularity feeds a public
     # index, and the per-name rate limit is only a limit if the name is real.
     claimed = (body.username or "").strip()[:24]
-    username = verify_identity(claimed, authorization) if claimed else "anon"
+    username = verify_identity(claimed, request) if claimed else "anon"
     now = time.time()
 
     with db() as conn:
