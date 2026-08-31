@@ -36,7 +36,33 @@ import { CIRCUIT_VIEWBOX } from '@/lib/constants'
 import HeroFrameScrub from '@/components/landing/HeroFrameScrub'
 import NewsRail from '@/components/landing/NewsRail'
 import CircuitDossier from '@/components/landing/CircuitDossier'
+import { nextSession } from '@/lib/weekend'
+import type { CalendarEvent } from '@/lib/types'
 import WeekendSchedule from '@/components/landing/WeekendSchedule'
+
+/** The next session and the time until it, ticking once a second.
+ *
+ * This counted down to `event.event_date` — the Sunday — while the schedule
+ * directly below it listed practice starting on the Friday. On a Friday
+ * morning the hero said "2 days" about a session three hours away.
+ */
+function useNextSessionCountdown(event: CalendarEvent | null | undefined) {
+  // Seeded null and filled in an effect: reading Date.now() during render gives
+  // the server a different value from the client, which React 19 reports as a
+  // hydration mismatch. Same pattern as CountdownTimer.
+  const [now, setNow] = useState<number | null>(null)
+  useEffect(() => {
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  const session = now == null ? null : nextSession(event, now)
+  return {
+    session,
+    left: session && now != null ? Math.max(0, session.t - now) : null,
+  }
+}
 
 function useCountdown(target: string | null | undefined) {
   // Seeded null and filled in an effect: reading Date.now() during render gives
@@ -77,7 +103,8 @@ export default function HeroPrototypePage() {
   )
 
   const leader = standings?.drivers?.find(d => d.position === 1) ?? null
-  const left = splitCountdown(useCountdown(event?.event_date))
+  const { session: upcoming, left: untilSession } = useNextSessionCountdown(event)
+  const left = splitCountdown(untilSession)
   const sessionCount = event ? Object.values(event.sessions || {}).filter(Boolean).length : 0
 
   return (
@@ -122,7 +149,9 @@ export default function HeroPrototypePage() {
 
             <dl className="hp-data hp-rise" style={{ '--d': '400ms' } as React.CSSProperties}>
               <div>
-                <dt>Lights out</dt>
+                {/* Labelled with the session it is actually counting to —
+                    "Lights out" over a practice countdown was simply wrong. */}
+                <dt>{upcoming ? `Until ${upcoming.name}` : 'Lights out'}</dt>
                 <dd>{left ? `${left.d}d ${left.h}h ${left.m}m` : '—'}</dd>
               </div>
               <div>

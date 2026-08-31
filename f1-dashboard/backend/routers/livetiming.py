@@ -374,6 +374,85 @@ def _resolve_current_round():
     return year, int(ev["RoundNumber"]), str(ev.get("EventName", ""))
 
 
+def _round_has_started(year: int, rnd: int) -> bool:
+    """True once the weekend is under way (or over).
+
+    Distinct from `_round_is_final`: during a live weekend the round is not
+    final but FP1 telemetry exists, and geometry should come from it. This only
+    rules out rounds where nothing has run, so we can skip straight to the
+    fallback instead of failing seven session loads first — which is most of
+    the minute an upcoming round used to spend.
+    """
+    import fastf1
+    import pandas as pd
+
+    try:
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
+        row = schedule[schedule["RoundNumber"] == rnd]
+        if len(row) == 0:
+            return False
+        # EventDate is the Sunday; practice starts a couple of days earlier.
+        start = pd.to_datetime(row.iloc[0]["EventDate"]) - pd.Timedelta(days=3)
+        return pd.Timestamp(datetime.now(timezone.utc)).tz_localize(None) >= start
+    except Exception:  # noqa: BLE001
+        # Unknown: assume it has, so a schedule hiccup degrades to the old
+        # behaviour rather than silently serving last year's shape.
+        return True
+
+
+def _circuit_location(year: int, rnd: int) -> str:
+    """The circuit's location for a round, from the published schedule.
+
+    Works for races that have not happened yet — the schedule is released
+    months ahead, while telemetry only exists once cars have run.
+    """
+    import fastf1
+
+    try:
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
+        row = schedule[schedule["RoundNumber"] == rnd]
+        if len(row) == 0:
+            return ""
+        return str(row.iloc[0].get("Location", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+#: How far back to look for a previous running of the same circuit. Three
+#: seasons covers a race that skipped a year (Imola, Zandvoort) without
+#: trawling through the whole archive on a cache miss.
+_GEOMETRY_FALLBACK_SEASONS = 3
+
+
+def _previous_running(year: int, rnd: int) -> tuple[int, int] | None:
+    """(year, round) of the last time this circuit was raced before `year`.
+
+    The geometry endpoint reads a circuit's shape out of session telemetry, so
+    an upcoming round has nothing to read and the map renders empty — which is
+    exactly what the landing page shows for the *next* race, the one round a
+    visitor is most likely to be looking at. A circuit's layout does not change
+    between seasons, so last year's running of the same track is the correct
+    shape rather than an approximation of it.
+    """
+    import fastf1
+
+    location = _circuit_location(year, rnd)
+    if not location:
+        return None
+
+    for back in range(1, _GEOMETRY_FALLBACK_SEASONS + 1):
+        prev_year = year - back
+        try:
+            schedule = fastf1.get_event_schedule(prev_year, include_testing=False)
+            match = schedule[schedule["Location"] == location]
+            if len(match) == 0:
+                continue
+            return prev_year, int(match.iloc[0]["RoundNumber"])
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def _load_track_session(year: int, rnd: int):
     """Load the earliest session of the weekend that has usable position data
     and return (session, fastest_lap). Returns (None, None) if none available."""
@@ -506,9 +585,34 @@ def _build_track_details(year: int, round: int) -> dict:
         return {"year": year, "round": round, "name": "", "points": [],
                 "corners": [], "marshal_sectors": [], "rotation": 0.0}
 
-    # Reuse the outline builder + its cache. Also grab the session so we can
-    # pull circuit_info from the same fastf1 load.
-    session, lap = _load_track_session(year, round)
+    # Geometry borrowed from a past season is immutable, so it belongs on disk.
+    # In memory alone, every restart pays another ~70s fastf1 load before the
+    # landing page can draw the next race's circuit at all.
+    disk_key = f"track_details_{ck}"
+    hit = disk_cache_get(disk_key)
+    if hit is not None:
+        _details_cache[ck] = hit
+        return hit
+
+    # Only attempt this round's own sessions if the weekend has actually run.
+    # For an upcoming race all seven attempts fail slowly, and that wasted
+    # minute is what made the next race's circuit render as an endless shimmer.
+    session, lap = (None, None)
+    if _round_has_started(year, round):
+        session, lap = _load_track_session(year, round)
+
+    # Still nothing — an upcoming race. Borrow the same circuit's geometry from
+    # its last running rather than serving an empty outline; a layout does not
+    # change between seasons. `source_year`/`source_round` are where the shape
+    # actually came from, while `year`/`round` stay as asked.
+    source_year, source_round = year, round
+    if session is None:
+        previous = _previous_running(year, round)
+        if previous is not None:
+            session, lap = _load_track_session(*previous)
+            if session is not None:
+                source_year, source_round = previous
+
     # Prefer the session's own event name; fall back to the outline cache.
     name = _track_cache.get(ck, {}).get("name", "")
     if session is not None:
@@ -516,12 +620,18 @@ def _build_track_details(year: int, round: int) -> dict:
             name = str(session.event.get("EventName", "") or name)
         except Exception:  # noqa: BLE001
             pass
-    outline = _build_outline(year, round, name)
+    # Built against the season the geometry came from — passing the requested
+    # year here would send it looking for a session that does not exist yet.
+    outline = _build_outline(source_year, source_round, name)
 
     result = {
         "year": year,
         "round": round,
         "name": name,
+        #: The season the geometry was actually measured in. Equal to `year`
+        #: normally; earlier when this is an upcoming race borrowing the same
+        #: circuit's shape from its last running.
+        "source_year": source_year,
         "points": outline.get("points", []),
         "corners": [],
         "marshal_sectors": [],
@@ -557,6 +667,11 @@ def _build_track_details(year: int, round: int) -> dict:
     # Only cache once we have real outline data (mirrors outline caching)
     if result["points"]:
         _details_cache[ck] = result
+    # Safe to persist when the shape is settled: either this round has raced,
+    # or the geometry was borrowed from a season that has. A live weekend's
+    # partial data stays in memory only, matching _build_outline's reasoning.
+    if result["points"] and (source_year != year or _round_is_final(year, round)):
+        disk_cache_set(disk_key, result)
     return result
 
 

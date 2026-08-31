@@ -15,6 +15,7 @@ import { useApiList } from '@/lib/api/client'
 import { useCalendar, useStandings } from '@/lib/api/hooks'
 import type { DriverStanding, LapData, SectorBest, SessionResult } from '@/lib/types'
 import { CHART_GRID as GRID } from '@/lib/chartTheme'
+import { roundOptionLabel } from '@/lib/weekend'
 
 const YEAR = 2026
 
@@ -210,7 +211,7 @@ export default function BattlePage() {
                   style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', padding: '7px 12px', borderRadius: 8, fontSize: 13, minWidth: 220 }}
                 >
                   {rounds.map(r => (
-                    <option key={r.round} value={r.round}>R{r.round} · {r.name}</option>
+                    <option key={r.round} value={r.round}>{roundOptionLabel(r)}</option>
                   ))}
                 </select>
               ) : (

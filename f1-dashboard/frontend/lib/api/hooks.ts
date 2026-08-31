@@ -12,6 +12,7 @@ import type { SWRConfiguration } from 'swr'
 import { useApi, useApiList } from './client'
 import { SEASON, useSeason } from '@/lib/season'
 import type { CalendarEvent, Standings, Driver, Team, Circuit } from '@/lib/types'
+import { weekendEndsAt } from '@/lib/weekend'
 
 /**
  * The current championship year. The literal lives in `lib/season.tsx` — that
@@ -61,14 +62,19 @@ export function useLatestCompletedRound(year?: number) {
 }
 
 /**
- * The next event that hasn't started yet, from the calendar. Defaults to the
+ * The current or next race weekend, from the calendar. Defaults to the
  * selected season — which for a finished season is every round, so `event` is
  * legitimately `null`. Callers must treat that as "season over", not an error.
+ *
+ * Selected by the weekend's LAST session rather than `event_date`. The latter
+ * is a date, so from midnight on race day the event reads as past and every
+ * caller jumps to the following round — while the race is still hours away and
+ * the whole site should still be pointed at it.
  */
 export function useNextRound(year?: number) {
   const { data: calendar, isLoading } = useCalendar(year)
   const now = Date.now()
-  const next = calendar.find(ev => new Date(ev.event_date).getTime() > now) || null
+  const next = calendar.find(ev => weekendEndsAt(ev) > now) || null
   return { event: next, isLoading }
 }
 
