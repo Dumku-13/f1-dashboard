@@ -46,7 +46,7 @@ const ENTRIES: Entry[] = [
           <li><b>OpenF1</b> — the free community API, used for live positions and intervals.</li>
           <li><b>Formula 1&apos;s own live timing feed</b> — during a live session OpenF1&apos;s free tier returns errors, so the backend connects anonymously to the official SignalR stream instead and serves a merged view of it.</li>
         </ul>
-        <p>News headlines come from public RSS feeds, and the prediction-market odds on the predictor page come from Kalshi.</p>
+        <p>News headlines come from public RSS feeds, the prediction-market odds on the predictor page come from Kalshi, and the satellite imagery on the schedule page is Esri&apos;s public World Imagery service.</p>
       </>
     ),
   },

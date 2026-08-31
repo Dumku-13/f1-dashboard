@@ -16,7 +16,7 @@ const csp = [
   // require middleware on every request and opt every route out of static
   // optimisation — a bad trade for an app whose pages are all client-rendered
   // anyway. 'unsafe-eval' is dev-only: webpack's HMR and react-refresh need it,
-  // production does not, and mapbox-gl v3 does its work in a worker.
+  // production does not, and maplibre-gl does its work in a worker.
   `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
 
   // Inline styles are the house idiom here — nearly every component styles
@@ -28,7 +28,8 @@ const csp = [
   // `https:` rather than a host list because feed posts carry an `image_url`
   // pointing at whatever CDN the poster used. safe_url.py on the backend is
   // what constrains those (https only, no credentials, no private addresses);
-  // CSP cannot express "any public image host" more tightly than this.
+  // CSP cannot express "any public image host" more tightly than this. It also
+  // covers the map's raster tiles, which load as plain images.
   `img-src 'self' data: blob: https:`,
 
   // Team radio clips stream straight off F1's static host — see
@@ -42,15 +43,14 @@ const csp = [
     `connect-src 'self'`,
     `https://api.openf1.org`,
     `https://livetiming.formula1.com`,
-    // Only reachable when NEXT_PUBLIC_MAPBOX_TOKEN is set; without a token
-    // /schedule falls back to traced SVG outlines and never calls these.
-    `https://api.mapbox.com`,
-    `https://events.mapbox.com`,
-    `https://*.tiles.mapbox.com`,
+    // Satellite tiles for /schedule. Esri's public World Imagery service —
+    // keyless, which is why the map no longer needs a Mapbox account.
+    `https://services.arcgisonline.com`,
     ...(isProd ? [] : [`http://localhost:8000`, `http://127.0.0.1:8000`, `ws://localhost:*`]),
   ].join(" "),
 
-  // mapbox-gl compiles its tile workers from a blob URL.
+  // maplibre-gl compiles its tile workers from a blob URL; the proof-of-work
+  // solver in /public is the 'self' half.
   `worker-src 'self' blob:`,
 
   // /battlestation embeds the app's own panes in iframes, and layout.tsx's
