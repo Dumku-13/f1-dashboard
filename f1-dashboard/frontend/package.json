@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "postinstall": "node scripts/sync-maplibre-worker.mjs"
+    "postinstall": "node scripts/sync-maplibre-worker.mjs && node scripts/sync-flags.mjs"
   },
   "dependencies": {
     "@paper-design/shaders-react": "^0.0.76",
@@ -30,6 +30,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "flag-icons": "^7.5.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

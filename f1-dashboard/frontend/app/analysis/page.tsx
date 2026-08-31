@@ -22,7 +22,7 @@ import { formatLapTime } from '@/lib/ist'
 import type { BoxRow } from '@/components/charts/BoxPlot'
 import { type AnalyticsTab } from '@/components/analysis/AnalyticsHub'
 import { CHART_GRID as GRID } from '@/lib/chartTheme'
-import { roundChipLabel } from '@/lib/weekend'
+import RoundFlag from '@/components/shared/RoundFlag'
 
 /**
  * The strategy/simulation half and Track DNA load on demand. Folding
@@ -561,8 +561,7 @@ function SeasonAnalysis({ year }: { year: number }) {
                 fontSize: 11, fontWeight: 700,
               }}
             >
-              <span style={{ display: 'block', fontSize: 9, opacity: 0.7, lineHeight: 1.2 }}>R{ev.round}</span>
-              <span style={{ display: 'block', fontSize: 10.5, lineHeight: 1.25, whiteSpace: 'nowrap' }}>{roundChipLabel(ev)}</span>
+              <RoundFlag event={ev} active={ev.round === activeRound} />
             </button>
           ))}
         </div>

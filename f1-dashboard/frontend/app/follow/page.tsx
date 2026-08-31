@@ -27,7 +27,7 @@ import { battleNeighbours } from '@/lib/battle'
 import DriverStory from '@/components/live/DriverStory'
 import TrackMap from '@/components/live/TrackMap'
 import TeamRadioPanel from '@/components/live/TeamRadioPanel'
-import { roundChipLabel } from '@/lib/weekend'
+import RoundFlag from '@/components/shared/RoundFlag'
 
 const RaceEngineer = dynamic(() => import('@/components/engineer/RaceEngineer'), {
   ssr: false,
@@ -562,8 +562,7 @@ export default function FollowPage() {
                   transition: 'background 0.25s ease, border-color 0.25s ease, color 0.25s ease',
                 }}
               >
-                <span style={{ display: 'block', fontSize: 9, opacity: 0.7, lineHeight: 1.2 }}>R{ev.round}</span>
-                <span style={{ display: 'block', fontSize: 10.5, lineHeight: 1.25, whiteSpace: 'nowrap' }}>{roundChipLabel(ev)}</span>
+                <RoundFlag event={ev} active={ev.round === engineerRound} />
               </motion.button>
             ))}
           </motion.div>

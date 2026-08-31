@@ -18,7 +18,7 @@ import { useSeason } from '@/lib/season'
 import { formatLapTime } from '@/lib/ist'
 import { TEAM_COLORS } from '@/lib/constants'
 import type { SessionResult, CalendarEvent } from '@/lib/types'
-import { roundChipLabel } from '@/lib/weekend'
+import RoundFlag from '@/components/shared/RoundFlag'
 
 const MEDAL = ['#FFD700', '#C0C0C0', '#CD7F32']
 
@@ -127,10 +127,7 @@ function SeasonResults({ year }: { year: number }) {
                 fontSize: 11, fontWeight: 700,
               }}
             >
-              <span style={{ display: 'block', fontSize: 9, opacity: 0.7, lineHeight: 1.2 }}>
-                R{ev.round}{ev.is_sprint ? <span style={{ color: active ? '#fff' : 'var(--amber)' }}>S</span> : ''}
-              </span>
-              <span style={{ display: 'block', fontSize: 10.5, lineHeight: 1.25, whiteSpace: 'nowrap' }}>{roundChipLabel(ev)}</span>
+              <RoundFlag event={ev} active={active} />
             </button>
           )
         })}
