@@ -20,6 +20,7 @@ import CircuitMap, { type YellowSectors } from '@/components/map/CircuitMap'
 import CornerReadout, { useFastestLap, buildOverlays } from '@/components/map/LapCompare'
 import DriverPanel, { type PaceSample } from '@/components/map/DriverPanel'
 import type { DetailsResponse } from '@/components/map/geometry'
+import { roundOptionLabel } from '@/lib/weekend'
 
 const YELLOW_WINDOW_MS = 3 * 60 * 1000  // "recent" flag horizon
 const PACE_BUFFER = 40                    // ring buffer length per driver
@@ -206,7 +207,7 @@ export default function MapPage() {
               style={{ appearance: 'none', background: 'rgba(20,20,22,0.7)', color: '#E5E7EB', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', padding: '9px 34px 9px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', minWidth: '210px' }}
             >
               {calendar.map(ev => (
-                <option key={ev.round} value={ev.round} style={{ background: '#141416' }}>R{ev.round} · {ev.name}</option>
+                <option key={ev.round} value={ev.round} style={{ background: '#141416' }}>{roundOptionLabel(ev)}</option>
               ))}
             </select>
             <ChevronDown size={15} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />

@@ -11,6 +11,8 @@ import Composer from '@/components/feed/Composer'
 import FeedPostItem from '@/components/feed/FeedPostItem'
 import RightRail from '@/components/feed/RightRail'
 import type { FeedPost, FollowSuggestion } from '@/components/feed/types'
+import { authHeaders, hasSession } from '@/lib/auth'
+import { usePow, powHeader } from '@/lib/pow'
 
 const YEAR = 2026
 type SortMode = 'hot' | 'new' | 'following'
@@ -21,6 +23,17 @@ const SORT_TABS: { id: SortMode; label: string; icon: LucideIcon }[] = [
   { id: 'following', label: 'Following', icon: Users },
 ]
 
+/** FastAPI puts the human-readable reason in `detail`; anything else means the
+ * failure wasn't ours to explain, so fall back to the caller's wording. */
+async function readDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json()
+    return typeof body?.detail === 'string' ? body.detail : fallback
+  } catch {
+    return fallback
+  }
+}
+
 export default function FeedPage() {
   const [name, setName] = useState('')
   const [nameDraft, setNameDraft] = useState('')
@@ -28,6 +41,16 @@ export default function FeedPage() {
   const [tagFilter, setTagFilter] = useState('')
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadMoreError, setLoadMoreError] = useState('')
+  // Writes are identity-bound server-side now: a guest typing a paddock name
+  // that someone has since registered gets a 401 telling them to sign in. That
+  // has to be readable — silently dropping the post looks like a broken button.
+  const [actionError, setActionError] = useState('')
+  // Guests pay a small proof of work to post; a signed-in account already
+  // paid at registration and is rate-limited under a name it cannot spoof.
+  // Solved in the background so the Post button never waits on it.
+  const [signedIn, setSignedIn] = useState(true)
+  useEffect(() => { setSignedIn(hasSession()) }, [])
+  const pow = usePow('content', !signedIn)
   const [hasMore, setHasMore] = useState(true)
 
   useEffect(() => {
@@ -59,7 +82,7 @@ export default function FeedPage() {
     useApiList<FeedPost>(`/api/feed/posts?${feedQuery}`)
 
   const loading = (postsIsLoading && posts.length === 0) || loadingMore
-  const error = postsError ? "Couldn't reach the server — please try again in a moment." : loadMoreError
+  const error = postsError ? "Couldn't reach the server — please try again in a moment." : (actionError || loadMoreError)
 
   // "Load more" appends a page rather than replacing the keyed data, so it can't
   // just be a reactive key — it fetches the next page directly and splices it
@@ -105,10 +128,15 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(), ...powHeader(signedIn ? null : pow.consume()) },
         body: JSON.stringify({ username: name, ...data }),
       })
-      if (!res.ok) return false
+      if (!res.ok) {
+        setActionError(await readDetail(res, "Couldn't post that — try again."))
+        return false
+      }
+      setActionError('')
       const created: FeedPost = await res.json()
       mutatePosts(prev => sort === 'new' || sort === 'hot' ? [created, ...(prev || [])] : (prev || []), { revalidate: false })
       return true
@@ -124,7 +152,8 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}/like`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name }),
       })
       if (res.ok) {
@@ -141,7 +170,8 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/follow`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ follower: name, followee: who }),
       })
       if (res.ok) {
@@ -155,7 +185,8 @@ export default function FeedPage() {
   const deletePost = async (post: FeedPost) => {
     if (!name) return
     try {
-      const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}?username=${encodeURIComponent(name)}`, { method: 'DELETE' })
+      const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}?username=${encodeURIComponent(name)}`, { method: 'DELETE', credentials: 'include', headers: authHeaders() })
+      if (!res.ok) setActionError(await readDetail(res, "Couldn't delete that post."))
       if (res.ok) {
         mutatePosts(prev => (prev || [])
           .filter(p => p.id !== post.id)
@@ -169,7 +200,8 @@ export default function FeedPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name, text: `↻ ${post.username}`, repost_of: post.id }),
       })
       if (res.ok) {

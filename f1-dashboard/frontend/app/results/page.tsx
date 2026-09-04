@@ -18,6 +18,7 @@ import { useSeason } from '@/lib/season'
 import { formatLapTime } from '@/lib/ist'
 import { TEAM_COLORS } from '@/lib/constants'
 import type { SessionResult, CalendarEvent } from '@/lib/types'
+import RoundFlag from '@/components/shared/RoundFlag'
 
 const MEDAL = ['#FFD700', '#C0C0C0', '#CD7F32']
 
@@ -118,7 +119,7 @@ function SeasonResults({ year }: { year: number }) {
                 // which is the exact trap the Phase 13 touch-target pass
                 // documented. Measured at 375px these 31 round buttons were
                 // 32px tall, under the 40px floor everywhere else obeys.
-                padding: '8px 10px', borderRadius: 2, cursor: 'pointer', minWidth: 40, minHeight: 40,
+                padding: '6px 10px', borderRadius: 2, cursor: 'pointer', minWidth: 56, minHeight: 44,
                 border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
                 background: active ? 'var(--accent)' : 'transparent',
                 color: active ? '#fff' : done ? 'var(--foreground)' : 'var(--muted)',
@@ -126,7 +127,7 @@ function SeasonResults({ year }: { year: number }) {
                 fontSize: 11, fontWeight: 700,
               }}
             >
-              R{ev.round}{ev.is_sprint ? <span style={{ color: active ? '#fff' : 'var(--amber)' }}>S</span> : ''}
+              <RoundFlag event={ev} active={active} />
             </button>
           )
         })}
@@ -184,7 +185,7 @@ function SeasonResults({ year }: { year: number }) {
             <h2 className="section-title" style={{ marginBottom: 14 }}>
               {session} Classification
             </h2>
-            <div style={{ overflowX: 'auto' }}>
+            <div className="table-scroll">
               <table className="f1-table f1-table--anchored">
                 <thead>
                   <tr>

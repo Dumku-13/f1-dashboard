@@ -10,18 +10,7 @@
 
 import { useEffect, useState } from 'react'
 import type { CalendarEvent } from '@/lib/types'
-
-/** Feed keys vary in case and spacing; this is display order, not a filter. */
-const ORDER = [
-  'fp1', 'practice 1', 'fp2', 'practice 2', 'fp3', 'practice 3',
-  'sprint qualifying', 'sprint shootout', 'sprint', 'qualifying', 'race',
-]
-
-const rank = (name: string) => {
-  const k = name.toLowerCase().trim()
-  const i = ORDER.findIndex(o => k === o)
-  return i === -1 ? ORDER.length : i
-}
+import { weekendSessions } from '@/lib/weekend'
 
 export default function WeekendSchedule({ event }: { event?: CalendarEvent | null }) {
   // Seeded null and filled after mount — formatting a date during render gives
@@ -33,11 +22,9 @@ export default function WeekendSchedule({ event }: { event?: CalendarEvent | nul
     return () => clearInterval(t)
   }, [])
 
-  const rows = Object.entries(event?.sessions || {})
-    .filter(([, iso]) => !!iso)
-    .map(([name, iso]) => ({ name, t: Date.parse(iso as string) }))
-    .filter(r => Number.isFinite(r.t))
-    .sort((a, b) => (a.t - b.t) || (rank(a.name) - rank(b.name)))
+  // Shared with the hero countdown, so the two cannot disagree about which
+  // session is next — they used to, by two days.
+  const rows = weekendSessions(event)
 
   if (!rows.length) return null
 

@@ -1,5 +1,5 @@
 /**
- * Idle-grid geometry for the `/live` mini-map.
+ * Projection geometry for the `/live` track map.
  *
  * Split out of `TrackMap.tsx` because jiti — which the verification scripts use
  * to import the real shipped code rather than a copy — cannot parse JSX. Pure
@@ -25,7 +25,14 @@ export const VIEW_H = 340
  * asserts against it, so the two cannot drift apart.
  */
 export const CAR_RADIUS = 11
-const PAD = 22
+/**
+ * Breathing room around the circuit, in view units.
+ *
+ * The fullscreen map passes a smaller value: at 400x340 blown up to fill a
+ * screen, 22 units of padding is a wide empty border, and the whole point of
+ * expanding is to see the track bigger.
+ */
+export const PAD = 22
 
 export interface Bounds { minX: number; maxX: number; minY: number; maxY: number }
 
@@ -113,8 +120,8 @@ export function boundsOf(points: [number, number][]): Bounds | null {
   return { minX, maxX, minY, maxY }
 }
 
-export function makeProject(b: Bounds) {
-  const scale = Math.min((VIEW_W - PAD * 2) / (b.maxX - b.minX), (VIEW_H - PAD * 2) / (b.maxY - b.minY))
+export function makeProject(b: Bounds, pad: number = PAD) {
+  const scale = Math.min((VIEW_W - pad * 2) / (b.maxX - b.minX), (VIEW_H - pad * 2) / (b.maxY - b.minY))
   const ox = (VIEW_W - (b.maxX - b.minX) * scale) / 2
   const oy = (VIEW_H - (b.maxY - b.minY) * scale) / 2
   // SVG y grows downward; track coords grow upward — flip Y

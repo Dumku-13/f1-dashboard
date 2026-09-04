@@ -22,6 +22,7 @@ import { formatLapTime } from '@/lib/ist'
 import type { BoxRow } from '@/components/charts/BoxPlot'
 import { type AnalyticsTab } from '@/components/analysis/AnalyticsHub'
 import { CHART_GRID as GRID } from '@/lib/chartTheme'
+import RoundFlag from '@/components/shared/RoundFlag'
 
 /**
  * The strategy/simulation half and Track DNA load on demand. Folding
@@ -553,14 +554,14 @@ function SeasonAnalysis({ year }: { year: number }) {
               aria-pressed={ev.round === activeRound}
               className="font-num"
               style={{
-                padding: '6px 10px', borderRadius: 2, cursor: 'pointer', minWidth: 38,
+                padding: '6px 10px', borderRadius: 2, cursor: 'pointer', minWidth: 56, minHeight: 44,
                 border: `1px solid ${ev.round === activeRound ? 'var(--accent)' : 'var(--border)'}`,
                 background: ev.round === activeRound ? 'var(--accent)' : 'transparent',
                 color: ev.round === activeRound ? '#fff' : 'var(--foreground)',
                 fontSize: 11, fontWeight: 700,
               }}
             >
-              R{ev.round}
+              <RoundFlag event={ev} active={ev.round === activeRound} />
             </button>
           ))}
         </div>

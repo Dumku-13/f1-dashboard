@@ -16,15 +16,21 @@ back, so the page never dead-ends.
 import asyncio
 import json
 import os
+import sqlite3
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 import fastf1
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from auth_guard import require_proof_from_guests
+from client_ip import client_ip
+from routers.auth import resolve_caller
 from utils import cache_get, cache_set
 
 router = APIRouter()
@@ -45,13 +51,148 @@ NO_KEY_NOTE = (
 
 
 class ChatMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     role: str
     content: str = Field(max_length=4000)
 
 
 class AskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     question: str = Field(max_length=500)
     history: list[ChatMessage] | None = Field(default=None, max_length=10)
+
+
+# ---------------------------------------------------------------------------
+# Spend guard
+#
+# Every /ask is a billed LLM call on our own key, which makes this the only
+# endpoint in the app where abuse costs money rather than disk. It used to take
+# no session, no proof of work and no limit, and would accept ten history turns
+# of 4,000 characters each — roughly 40,500 characters of caller-controlled
+# prompt, unlimited times.
+#
+# Three limits now stand in front of it, in increasing order of bluntness:
+#
+#   1. proof of work for guests (auth_guard.require_proof_from_guests) — a
+#      per-request cost that does not need to know who the caller is;
+#   2. a per-identity hourly cap, applied only to callers we can actually
+#      identify, so it can never become the shared bucket that client_ip.py
+#      exists to avoid;
+#   3. a process-wide hourly ceiling on paid calls. This one deliberately does
+#      NOT reject: past the ceiling we serve the rule-based answer instead of
+#      buying another completion. The page keeps working, nobody is locked out,
+#      and the bill stops. That the endpoint already has a good offline answer
+#      is what makes a global cap safe here.
+# ---------------------------------------------------------------------------
+
+DB_PATH = Path(__file__).resolve().parent.parent / "engineer.db"
+
+BUDGET_WINDOW_S = 60 * 60
+#: Per signed-in account, or per address when we can establish one.
+MAX_CALLS_PER_IDENTITY = 30
+#: Paid calls per hour across the whole service. Generous for real use on a
+#: dashboard this size; override with ENGINEER_HOURLY_BUDGET.
+try:
+    GLOBAL_HOURLY_BUDGET = max(1, int(os.getenv("ENGINEER_HOURLY_BUDGET", "300")))
+except ValueError:
+    GLOBAL_HOURLY_BUDGET = 300
+
+#: Total characters of history handed to the model, oldest turns dropped first.
+#: The per-turn cap of 4,000 was never multiplied out against the turn cap of
+#: 10, which is where the 40,500-character prompt came from.
+MAX_HISTORY_CHARS = 6000
+
+
+@contextmanager
+def db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _init():
+    with db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                identity TEXT,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_calls_at ON calls (created_at)")
+
+
+_init()
+
+
+def _identity(request: Request) -> str | None:
+    """A key we can hold one caller to, or None if there isn't one.
+
+    A signed-in account is the strongest form; failing that an address, but
+    only when client_ip can vouch for it. None means "meter this caller only
+    through the proof of work" — never a shared fallback bucket.
+    """
+    caller = resolve_caller(request)
+    if caller is not None:
+        return f"user:{caller.user['id']}"
+    addr = client_ip(request)
+    return f"ip:{addr}" if addr else None
+
+
+def _charge(request: Request) -> bool:
+    """Record this call and report whether we may pay for a completion.
+
+    Raises 429 for an identified caller over their own budget. Returns False
+    when the service-wide ceiling is spent, which is the caller's cue to fall
+    back rather than an error.
+    """
+    identity = _identity(request)
+    now = time.time()
+    since = now - BUDGET_WINDOW_S
+
+    with db() as conn:
+        if identity is not None:
+            mine = conn.execute(
+                "SELECT COUNT(*) AS n FROM calls WHERE identity = ? AND created_at > ?",
+                (identity, since),
+            ).fetchone()["n"]
+            if mine >= MAX_CALLS_PER_IDENTITY:
+                raise HTTPException(
+                    429, "that's a lot of radio traffic — give it a few minutes"
+                )
+        spent = conn.execute(
+            "SELECT COUNT(*) AS n FROM calls WHERE created_at > ?", (since,)
+        ).fetchone()["n"]
+        conn.execute(
+            "INSERT INTO calls (identity, created_at) VALUES (?, ?)", (identity, now)
+        )
+        # Nothing outside the window is ever counted, so nothing outside it
+        # needs keeping.
+        conn.execute("DELETE FROM calls WHERE created_at < ?", (since,))
+
+    return spent < GLOBAL_HOURLY_BUDGET
+
+
+def _trim_history(history: list[ChatMessage] | None) -> list[ChatMessage]:
+    """The most recent turns that fit inside MAX_HISTORY_CHARS."""
+    kept: list[ChatMessage] = []
+    budget = MAX_HISTORY_CHARS
+    for turn in reversed((history or [])[-10:]):
+        cost = len(turn.content)
+        if cost > budget:
+            break
+        budget -= cost
+        kept.append(turn)
+    kept.reverse()
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -427,20 +568,36 @@ async def _stream_anthropic(question: str, history: list[ChatMessage] | None, co
 
 
 @router.post("/ask")
-async def ask(body: AskBody):
+async def ask(
+    body: AskBody,
+    request: Request,
+    x_pow: str | None = Header(default=None),
+):
+    # Guests pay a proof of work; signed-in callers already paid at
+    # registration. Cheapest gate first — before any context is built and long
+    # before a completion is bought.
+    require_proof_from_guests(request, x_pow, scope="engineer")
+    # Raises 429 if this caller has had their hour's worth; returns False when
+    # the service-wide budget is gone, which is a fallback rather than a refusal.
+    may_pay = _charge(request)
+
     # _build_context does blocking I/O (fastf1 schedule + standings compute) —
     # off the event loop it goes.
     context = await asyncio.to_thread(_build_context)
     provider = _provider()
 
-    if provider is None:
+    if provider is None or not may_pay:
         async def _fallback_gen():
-            yield _rule_based_answer(body.question, context) + NO_KEY_NOTE
+            answer = _rule_based_answer(body.question, context)
+            # Only the missing-key case gets the "set an API key" note; a
+            # spent budget is a different situation and that note would be
+            # actively misleading advice.
+            yield answer + (NO_KEY_NOTE if provider is None else "")
         return StreamingResponse(_fallback_gen(), media_type="text/plain")
 
     gen = _stream_gemini if provider == "gemini" else _stream_anthropic
     return StreamingResponse(
-        gen(body.question, body.history, context),
+        gen(body.question, _trim_history(body.history), context),
         media_type="text/plain",
     )
 

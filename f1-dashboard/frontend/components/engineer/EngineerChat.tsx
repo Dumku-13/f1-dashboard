@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Radio, Send, Satellite, Terminal } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
+import { fetchChallenge, powHeader, solveChallenge, usePow } from '@/lib/pow'
 
 const HISTORY_KEY = 'f1.engineer.history'
 const MAX_STORED_MESSAGES = 40
@@ -60,6 +61,14 @@ export default function EngineerChat({ compact = false }: { compact?: boolean })
   const messagesRef = useRef<Message[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
+  // Pre-solves a proof of work so the common case — one question, typed —
+  // costs no visible wait. Held in a ref for the same reason `messagesRef`
+  // exists: `send` is a useCallback and `consume` gets a new identity on every
+  // render, so depending on it directly would rebuild `send` constantly.
+  const pow = usePow('engineer')
+  const powConsumeRef = useRef(pow.consume)
+  useEffect(() => { powConsumeRef.current = pow.consume }, [pow.consume])
+
   useEffect(() => {
     setMessages(loadHistory())
     let cancelled = false
@@ -110,13 +119,28 @@ export default function EngineerChat({ compact = false }: { compact?: boolean })
     abortRef.current = ac
 
     try {
+      // Every answer costs the backend a billed LLM call, so an anonymous ask
+      // has to carry a proof of work. usePow keeps one solved in the
+      // background; asking two questions back to back can outrun it, and
+      // solving on the spot (~0.3s, while the streaming bubble is already up)
+      // beats bouncing the user off a 428.
+      const proof = powConsumeRef.current() ?? (await solveChallenge(await fetchChallenge('engineer')))
+
       const res = await fetch(`${BACKEND_URL}/api/engineer/ask`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // credentials: signed-in askers skip the proof and get their own
+        // per-account budget, but only if the session cookie actually travels
+        // — in development the page is :3000 and this API is :8000, where the
+        // default same-origin mode drops it.
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...powHeader(proof) },
         body: JSON.stringify({ question, history: historyTurns }),
         signal: ac.signal,
       })
 
+      if (res.status === 429) {
+        throw new Error("Easy on the radio — you've used your questions for the hour.")
+      }
       if (!res.ok || !res.body) {
         throw new Error('bad response')
       }
@@ -137,13 +161,17 @@ export default function EngineerChat({ compact = false }: { compact?: boolean })
       setMessages(prev =>
         prev.map(m => (m.id === engineerMsg.id ? { ...m, content: full || 'No response.', streaming: false } : m))
       )
-    } catch {
+    } catch (err) {
       if (ac.signal.aborted) return
+      // A budget rejection is a real answer, not a dropped connection — saying
+      // "backend unreachable" there sends people off debugging the wrong thing.
+      const reason =
+        err instanceof Error && err.message.startsWith('Easy on the radio')
+          ? err.message
+          : 'Radio check failed — backend unreachable. Try again.'
       setMessages(prev =>
         prev.map(m =>
-          m.id === engineerMsg.id
-            ? { ...m, content: 'Radio check failed — backend unreachable. Try again.', streaming: false }
-            : m
+          m.id === engineerMsg.id ? { ...m, content: reason, streaming: false } : m
         )
       )
     } finally {

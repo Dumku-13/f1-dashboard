@@ -20,10 +20,17 @@
  *
  * The glow is F1 red, not the reference site's lime: the redesign spec is
  * explicit that red is the one identity chroma and the discipline is scale.
+ *
+ * Three levels of fallback, because the measured geometry comes from session
+ * telemetry and an UPCOMING race has none — which is exactly the race this
+ * section shows. The backend borrows the same circuit's shape from its last
+ * running; failing that (a genuinely new circuit), this falls back to the
+ * traced `svgPath` from the circuit record; failing that, a shimmer.
  */
 
 import { useMemo } from 'react'
 import { useApi } from '@/lib/api/client'
+import { CIRCUIT_VIEWBOX } from '@/lib/constants'
 import {
   rotatePt, centroid, boundsOf, makeProject, toPt, pathFrom,
   VIEW_W, VIEW_H, type Pt,
@@ -54,7 +61,7 @@ export default function CircuitDossier({
   round: number | null
   circuit?: Circuit
 }) {
-  const { data: details } = useApi<Details>(
+  const { data: details, isLoading: detailsLoading } = useApi<Details>(
     round != null ? `/api/livetiming/track/${year}/${round}/details` : null,
   )
   const { data: dna } = useApi<TrackDna>(
@@ -105,6 +112,16 @@ export default function CircuitDossier({
                 <text x={c.x} y={c.y} className="hp-corner-num">{c.label}</text>
               </g>
             ))}
+          </svg>
+        ) : circuit?.svgPath && !detailsLoading ? (
+          // No measured geometry: a brand-new circuit with no previous running
+          // to borrow from (Madrid, 2026). The traced outline has no corner
+          // numbers, but a circuit drawn plainly beats a shimmer that never
+          // resolves — which is what this showed for every upcoming race.
+          <svg viewBox={CIRCUIT_VIEWBOX} className="hp-circuit-svg" role="img"
+            aria-label={`${circuit?.short_name || 'Circuit'} layout`}>
+            <path d={circuit.svgPath} className="hp-circuit-glow" />
+            <path d={circuit.svgPath} className="hp-circuit-line" />
           </svg>
         ) : (
           <div className="shimmer" style={{ width: '100%', aspectRatio: '1000 / 720', borderRadius: 2 }} />

@@ -6,6 +6,7 @@ import { Brain, Flame, Trophy, Coins, CheckCircle2, XCircle, RefreshCw } from 'l
 import { BACKEND_URL } from '@/lib/constants'
 import { getUsername, setUsername, addCoins } from '@/lib/wallet'
 import { unlockAchievement } from '@/lib/achievements'
+import { authHeaders } from '@/lib/auth'
 
 const CLAIMED_KEY = 'f1.quiz.claimed'
 
@@ -164,7 +165,8 @@ export default function QuizPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/quiz/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: name, answers: nextAnswers }),
       })
       if (!res.ok) {

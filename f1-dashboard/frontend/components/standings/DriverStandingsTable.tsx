@@ -45,7 +45,7 @@ export default function DriverStandingsTable({ drivers, rounds, compact = false 
   const prevPos = useMemo(() => prevPositions(drivers, rounds), [drivers, rounds])
 
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div className="table-scroll">
       {/* 11 rounds at 34px plus POS/DRIVER/TEAM/PTS/W/POD/FL is 596px wider
           than a 375px screen, and that is legitimate — a season matrix is wide
           data and scrolling it sideways is the right gesture. What was missing

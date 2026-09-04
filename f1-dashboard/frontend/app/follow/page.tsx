@@ -27,6 +27,7 @@ import { battleNeighbours } from '@/lib/battle'
 import DriverStory from '@/components/live/DriverStory'
 import TrackMap from '@/components/live/TrackMap'
 import TeamRadioPanel from '@/components/live/TeamRadioPanel'
+import RoundFlag from '@/components/shared/RoundFlag'
 
 const RaceEngineer = dynamic(() => import('@/components/engineer/RaceEngineer'), {
   ssr: false,
@@ -553,7 +554,7 @@ export default function FollowPage() {
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.95 }}
                 style={{
-                  padding: '5px 9px', borderRadius: 2, cursor: 'pointer', minWidth: 34, minHeight: 40,
+                  padding: '5px 9px', borderRadius: 2, cursor: 'pointer', minWidth: 56, minHeight: 44,
                   border: `1px solid ${ev.round === engineerRound ? 'var(--accent)' : 'var(--border)'}`,
                   background: ev.round === engineerRound ? 'var(--accent)' : 'transparent',
                   color: ev.round === engineerRound ? '#fff' : 'var(--foreground)',
@@ -561,7 +562,7 @@ export default function FollowPage() {
                   transition: 'background 0.25s ease, border-color 0.25s ease, color 0.25s ease',
                 }}
               >
-                R{ev.round}
+                <RoundFlag event={ev} active={ev.round === engineerRound} />
               </motion.button>
             ))}
           </motion.div>

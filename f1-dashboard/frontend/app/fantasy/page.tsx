@@ -10,6 +10,7 @@ import { logPulse } from '@/lib/pulse'
 import { useApi, useApiList } from '@/lib/api/client'
 import { useStandings } from '@/lib/api/hooks'
 import type { DriverStanding, ConstructorStanding } from '@/lib/types'
+import { authHeaders } from '@/lib/auth'
 
 const YEAR = 2026
 const TEAM_KEY = 'f1.fantasy.team'
@@ -243,7 +244,8 @@ export default function FantasyPage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/fantasy/team`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           username: name, year: YEAR, round: nextRound.round,
           drivers: team.drivers, constructor: team.constructor,

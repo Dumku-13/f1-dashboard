@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart3, Plus, X, Check } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
 import { unlockAchievement } from '@/lib/achievements'
+import { authHeaders } from '@/lib/auth'
 
 const POLL_REFRESH = 5000
 const BAR_COLORS = ['#E10600', '#3671C6', '#00D2BE', '#FF8000', '#BF00FF', '#00D131']
@@ -52,7 +53,8 @@ export default function PollsPanel({ channel, username }: { channel: string; use
     setError('')
     const res = await fetch(`${BACKEND_URL}/api/community/polls`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ channel, username, question: question.trim(), options: opts }),
     }).catch(() => null)
     if (!res?.ok) {
@@ -71,7 +73,8 @@ export default function PollsPanel({ channel, username }: { channel: string; use
     if (poll.closed || !username) return
     const res = await fetch(`${BACKEND_URL}/api/community/polls/${poll.id}/vote`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ username, option_idx: idx }),
     }).catch(() => null)
     if (res?.ok) {
@@ -81,7 +84,7 @@ export default function PollsPanel({ channel, username }: { channel: string; use
   }
 
   const close = async (poll: Poll) => {
-    await fetch(`${BACKEND_URL}/api/community/polls/${poll.id}/close?username=${encodeURIComponent(username)}`, { method: 'POST' }).catch(() => null)
+    await fetch(`${BACKEND_URL}/api/community/polls/${poll.id}/close?username=${encodeURIComponent(username)}`, { method: 'POST', credentials: 'include', headers: authHeaders() }).catch(() => null)
     refresh()
   }
 

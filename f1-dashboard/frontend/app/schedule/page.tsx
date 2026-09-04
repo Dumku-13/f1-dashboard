@@ -4,9 +4,13 @@
  * Season schedule — a full-bleed circuit view with a horizontal race carousel
  * along the bottom. Selecting a round moves the view to that circuit.
  *
- * The hero is a Mapbox satellite map when NEXT_PUBLIC_MAPBOX_TOKEN is set, and
- * the circuit's SVG track outline otherwise. Both paths are fully functional —
- * the map is an upgrade, never a requirement.
+ * The hero is a satellite map (MapLibre + keyless Esri imagery), falling back
+ * to the circuit's SVG track outline when a round has no coordinates. Both
+ * paths are fully functional.
+ *
+ * This used to need NEXT_PUBLIC_MAPBOX_TOKEN and showed the outline to anyone
+ * without one. MapLibre needs no token at all, so every visitor now gets the
+ * map and the fallback is only about missing data.
  */
 
 import { useState, useMemo, useEffect, useRef } from 'react'
@@ -20,8 +24,6 @@ import { formatISTDate } from '@/lib/ist'
 import { CIRCUIT_VIEWBOX } from '@/lib/constants'
 import type { CalendarEvent, Circuit } from '@/lib/types'
 import { useIsPhone } from '@/lib/breakpoint'
-
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 
 const CircuitMap3D = dynamic(() => import('@/components/schedule/CircuitMap3D'), {
   ssr: false,
@@ -194,16 +196,15 @@ function SeasonSchedule({ year }: { year: number }) {
         </div>
       </motion.div>
 
-      {/* Hero: map, or the circuit outline when no token is configured */}
+      {/* Hero: map, or the circuit outline when the round has no coordinates */}
       <div
         className="glass-card"
         style={{ position: 'relative', height: 'clamp(380px, 54vh, 620px)', overflow: 'hidden', marginBottom: 14 }}
       >
         {isLoading ? (
           <div className="shimmer" style={{ position: 'absolute', inset: 0 }} />
-        ) : MAPBOX_TOKEN && circuit?.lat != null && circuit?.lng != null ? (
+        ) : circuit?.lat != null && circuit?.lng != null ? (
           <CircuitMap3D
-            token={MAPBOX_TOKEN}
             circuit={{ key: circuit.key, name: circuit.name, lat: circuit.lat as number, lng: circuit.lng as number }}
           />
         ) : (
@@ -251,15 +252,6 @@ function SeasonSchedule({ year }: { year: number }) {
           </div>
         )}
 
-        {!MAPBOX_TOKEN && (
-          <div style={{
-            position: 'absolute', right: 14, bottom: 12, fontSize: 10, color: 'var(--muted)',
-            background: 'rgba(11,12,14,0.8)', border: '1px solid var(--border)',
-            borderRadius: 2, padding: '5px 9px', pointerEvents: 'none',
-          }}>
-            Set NEXT_PUBLIC_MAPBOX_TOKEN for the satellite view
-          </div>
-        )}
       </div>
 
       {/* Carousel */}

@@ -13,8 +13,10 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
+
+from auth_guard import verify_identity
 
 router = APIRouter()
 
@@ -102,7 +104,13 @@ _init()
 MESSAGE_KINDS = {"text", "burst", "sticker"}
 
 
+# `extra="forbid"` throughout: an unknown key is a client reaching for a column
+# we didn't offer, and pydantic's default of dropping it silently means the next
+# field added to a table is quietly writable. Reject instead, so it shows up.
+
 class MessageIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     channel: str = Field(min_length=1, max_length=40)
     username: str = Field(min_length=1, max_length=24)
     text: str = Field(min_length=1, max_length=500)
@@ -110,12 +118,16 @@ class MessageIn(BaseModel):
 
 
 class ReactionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message_id: int
     username: str = Field(min_length=1, max_length=24)
     emoji: str = Field(min_length=1, max_length=8)
 
 
 class PollIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     channel: str = Field(min_length=1, max_length=40)
     username: str = Field(min_length=1, max_length=24)
     question: str = Field(min_length=1, max_length=200)
@@ -123,6 +135,8 @@ class PollIn(BaseModel):
 
 
 class VoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str = Field(min_length=1, max_length=24)
     option_idx: int = Field(ge=0, le=5)
 
@@ -174,14 +188,14 @@ def messages(
 
 
 @router.post("/messages")
-def post_message(msg: MessageIn):
+def post_message(msg: MessageIn, request: Request):
     channel = msg.channel.strip().lower()
     if not _CHANNEL_RE.match(channel):
         raise HTTPException(400, "invalid channel")
-    username = msg.username.strip()
+    username = verify_identity(msg.username, request)
     text = msg.text.strip()
     kind = msg.kind if msg.kind in MESSAGE_KINDS else "text"
-    if not username or not text:
+    if not text:
         raise HTTPException(400, "empty message")
 
     with db() as conn:
@@ -207,16 +221,22 @@ def post_message(msg: MessageIn):
 
 
 @router.post("/messages/{message_id}/pin")
-def toggle_pin(message_id: int, username: str = Query(..., max_length=24)):
+def toggle_pin(
+    message_id: int,
+    request: Request,
+    username: str = Query(..., max_length=24),
+):
+    # The ownership rule below only binds once the name does: until the caller
+    # has proved the name is theirs, `username` is just a string they chose.
+    actor = verify_identity(username, request)
     with db() as conn:
         row = conn.execute(
             "SELECT pinned, username FROM messages WHERE id = ?", (message_id,)
         ).fetchone()
         if row is None:
             raise HTTPException(404, "message not found")
-        # Was completely unauthenticated — anyone could pin/unpin anyone's
-        # message. Same ownership rule as delete_post / close_poll.
-        if row["username"] != username.strip():
+        # Same ownership rule as delete_post / close_poll.
+        if row["username"] != actor:
             raise HTTPException(403, "only the author can pin this message")
         new_val = 0 if row["pinned"] else 1
         conn.execute(
@@ -244,10 +264,8 @@ def pinned_messages(channel: str = Query(..., max_length=40)):
 # ── Reactions ────────────────────────────────────────────────────────────────
 
 @router.post("/reactions")
-def toggle_reaction(r: ReactionIn):
-    username = r.username.strip()
-    if not username:
-        raise HTTPException(400, "username required")
+def toggle_reaction(r: ReactionIn, request: Request):
+    username = verify_identity(r.username, request)
     with db() as conn:
         exists = conn.execute(
             "SELECT id FROM reactions WHERE message_id = ? AND username = ? AND emoji = ?",
@@ -318,14 +336,14 @@ def _poll_payload(conn, poll_row, username: str) -> dict:
 
 
 @router.post("/polls")
-def create_poll(p: PollIn):
+def create_poll(p: PollIn, request: Request):
     channel = p.channel.strip().lower()
     if not _CHANNEL_RE.match(channel):
         raise HTTPException(400, "invalid channel")
-    username = p.username.strip()
+    username = verify_identity(p.username, request)
     options = [o.strip()[:60] for o in p.options if o.strip()]
-    if not username or len(options) < 2:
-        raise HTTPException(400, "need a username and at least 2 options")
+    if len(options) < 2:
+        raise HTTPException(400, "a poll needs at least 2 options")
     with db() as conn:
         open_count = conn.execute(
             "SELECT COUNT(*) FROM polls WHERE channel = ? AND closed = 0",
@@ -357,10 +375,10 @@ def list_polls(
 
 
 @router.post("/polls/{poll_id}/vote")
-def vote_poll(poll_id: int, v: VoteIn):
-    username = v.username.strip()
-    if not username:
-        raise HTTPException(400, "username required")
+def vote_poll(poll_id: int, v: VoteIn, request: Request):
+    # One vote per username is the whole integrity model of a poll; without a
+    # bound name, "one vote each" means "one vote per name you can type".
+    username = verify_identity(v.username, request)
     with db() as conn:
         poll = conn.execute("SELECT * FROM polls WHERE id = ?", (poll_id,)).fetchone()
         if poll is None:
@@ -382,12 +400,17 @@ def vote_poll(poll_id: int, v: VoteIn):
 
 
 @router.post("/polls/{poll_id}/close")
-def close_poll(poll_id: int, username: str = Query(..., max_length=24)):
+def close_poll(
+    poll_id: int,
+    request: Request,
+    username: str = Query(..., max_length=24),
+):
+    actor = verify_identity(username, request)
     with db() as conn:
         poll = conn.execute("SELECT * FROM polls WHERE id = ?", (poll_id,)).fetchone()
         if poll is None:
             raise HTTPException(404, "poll not found")
-        if poll["username"] != username.strip():
+        if poll["username"] != actor:
             raise HTTPException(403, "only the poll creator can close it")
         conn.execute("UPDATE polls SET closed = 1 WHERE id = ?", (poll_id,))
     return {"id": poll_id, "closed": True}

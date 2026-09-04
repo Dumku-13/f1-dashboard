@@ -11,7 +11,8 @@ import {
 import { TEAM_COLORS } from '@/lib/constants'
 import { formatLapTime } from '@/lib/ist'
 import { ApiError, useApi } from '@/lib/api/client'
-import { useDrivers } from '@/lib/api/hooks'
+import { useDrivers, useCalendar } from '@/lib/api/hooks'
+import { roundOptionLabel } from '@/lib/weekend'
 import type { TelemetrySample } from '@/lib/types'
 import { deltaTrace, deltaSummary, fmtDelta } from '@/lib/telemetryDelta'
 import { CHART_GRID as GRID } from '@/lib/chartTheme'
@@ -239,6 +240,8 @@ export default function TelemetryPage() {
   const [driver2, setDriver2] = useState('')
   const [year] = useState(2026)
   const [round, setRound] = useState(1)
+  // Typing a round number meant knowing which Grand Prix number eight was.
+  const { data: calendar } = useCalendar(year)
   const [sessionType] = useState('Qualifying')
   const [channels, setChannels] = useState<Set<Channel>>(new Set(['speed', 'throttle', 'brake', 'aoa']))
 
@@ -510,12 +513,23 @@ export default function TelemetryPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 12, alignItems: 'end' }}>
           <div>
             <div style={{ fontSize: 9.5, color: 'var(--muted)', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.16em' }}>Round</div>
-            <input
-              type="number" min={1} max={23} value={round}
+            <select
+              aria-label="Round"
+              value={round}
               onChange={e => setRound(parseInt(e.target.value) || 1)}
               className="font-num"
               style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--foreground)', padding: '8px 11px', borderRadius: 2, width: '100%', fontSize: 13 }}
-            />
+            >
+              {/* Falls back to bare numbers if the calendar hasn't loaded, so
+                  the control is never empty and never loses the current value. */}
+              {calendar.length === 0
+                ? <option value={round}>{`Round ${round}`}</option>
+                : calendar.map(ev => (
+                    <option key={ev.round} value={ev.round} style={{ background: '#141416' }}>
+                      {roundOptionLabel(ev)}
+                    </option>
+                  ))}
+            </select>
           </div>
           <div>
             <div style={{ fontSize: 9.5, color: driver1 ? d1Color : 'var(--muted)', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.16em', fontWeight: 700 }}>

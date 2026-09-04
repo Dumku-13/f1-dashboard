@@ -1,22 +1,32 @@
-# Render blueprint for the FastAPI backend.
+# Render blueprint for the whole app — FastAPI backend + Next.js frontend.
 #
-# Point Render at this file (Blueprint → connect the repo) or copy the settings
-# into a Web Service by hand. Either way the two things that matter are the root
-# directory and the $PORT bind.
+# Point Render at this file (Blueprint → connect the repo) or create the two
+# Web Services by hand with the settings below. Either way the things that
+# matter are each service's root directory, the $PORT bind, and giving the
+# frontend the backend's origin at BUILD time.
 #
-# WHY A PERSISTENT DISK: fastf1 caches raw session telemetry, and the local dev
-# cache is ~3.1GB. It is gitignored and does not ship. Without a disk the
-# service re-downloads per session on every cold start, which turns a telemetry
-# or track-outline request into a 30-90s wait instead of a fast one. The app
-# still WORKS without it — it is a speed problem, not a correctness one — so if
-# a disk isn't available, deploy anyway and expect slow first loads.
+# Deploy order matters: the backend must exist first, because next.config.ts
+# reads BACKEND_ORIGIN when `next build` generates the routes manifest. A
+# frontend built without it bakes in http://127.0.0.1:8000 and every /api/*
+# call 500s.
+#
+# WHY THERE IS NO PERSISTENT DISK: fastf1 caches raw session telemetry, and the
+# local dev cache is ~3.1GB. It is gitignored and does not ship. A disk would
+# keep that cache warm across restarts, but disks require a paid instance type,
+# so this blueprint runs on `free` and lets the cache live in the service's
+# ephemeral filesystem (main.py falls back to backend/cache when FASTF1_CACHE
+# is unset). Consequence, not a failure: after each cold start the first
+# telemetry or track-outline request re-downloads its session and takes 30-90s.
+# To fix it, set both services to `starter` and add back:
+#     disk: { name: fastf1-cache, mountPath: /var/data, sizeGB: 10 }
+# plus FASTF1_CACHE=/var/data/fastf1 on the backend.
 services:
   - type: web
     name: f1-dashboard-api
     runtime: python
     # The backend is not at the repo root.
     rootDir: f1-dashboard/backend
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     # Render injects $PORT; binding to a fixed 8000 makes the service
     # unreachable and the failure looks like a timeout, not a config error.
@@ -25,20 +35,63 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.9"
-      # Where fastf1 caches. Must sit on the mounted disk below.
-      - key: FASTF1_CACHE
-        value: /var/data/fastf1
       # Only needed if anything calls this API cross-origin. The frontend
       # proxies /api/* server-side, so normally it does not.
       - key: ALLOWED_ORIGINS
         sync: false
+      # How many proxies sit between the public internet and this process.
+      #
+      # TWO, because a visitor's request reaches this service through two of
+      # them: Render's edge in front of the frontend, then the frontend's own
+      # server-side /api/* rewrite (which passes X-Forwarded-For along), and
+      # Render's edge in front of this service appends the frontend's address.
+      # So the visitor sits second from the end of the chain.
+      #
+      # Do NOT set this to 1 for this topology. 1 would read the entry the
+      # backend's edge appended — the frontend's egress address, identical for
+      # every visitor on earth — which is precisely the shared-bucket bug
+      # client_ip.py exists to prevent: 20 bad passwords from anybody would
+      # lock everyone out of signing in. 1 is correct only when browsers reach
+      # this service directly rather than through the frontend proxy.
+      #
+      # If the chain is ever shorter than this (someone hitting the API's own
+      # onrender.com URL directly), client_ip() returns None and the per-IP
+      # limits switch themselves off rather than guess — the per-name cap and
+      # the proof of work in bot_guard.py carry the load there.
+      - key: TRUSTED_PROXY_HOPS
+        value: "2"
       # Optional — the AI race engineer degrades to a rule-based answer without
       # either of these, and the page still works.
       - key: GEMINI_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-    disk:
-      name: fastf1-cache
-      mountPath: /var/data
-      sizeGB: 10
+
+  - type: web
+    name: f1-dashboard-web
+    runtime: node
+    rootDir: f1-dashboard/frontend
+    plan: free
+    # postinstall (see package.json) syncs the maplibre worker and the flag
+    # sprites into /public, so a plain `npm install` is doing real work here.
+    buildCommand: npm install && npm run build
+    # `next start` honours $PORT on its own.
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Server-side ONLY — never NEXT_PUBLIC_. Making it public would inline
+      # the backend's address into the client bundle and expose the API
+      # directly to the internet; see DEPLOY.md. No trailing slash.
+      #
+      # Set by hand to the API service's full origin, e.g.
+      # https://f1-dashboard-api.onrender.com. It is not wired with
+      # `fromService` because that yields a bare hostname with no scheme, and
+      # next.config.ts interpolates this value straight into a rewrite
+      # destination — a destination without https:// is not a URL and the
+      # rewrite silently stops proxying.
+      - key: BACKEND_ORIGIN
+        sync: false
+      # Called from the browser, so this one is deliberately public.
+      - key: NEXT_PUBLIC_OPENF1_URL
+        value: https://api.openf1.org/v1

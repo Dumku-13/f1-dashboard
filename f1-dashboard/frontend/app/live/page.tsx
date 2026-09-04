@@ -16,6 +16,7 @@ import SessionClock from '@/components/live/SessionClock'
 import EngineerDock from '@/components/engineer/EngineerDock'
 import { COMPOUND_COLORS, FLAG_COLORS } from '@/lib/constants'
 import { Flag, Thermometer, Wind, Droplets, Radio, Bell, Clock, Maximize2, Minimize2 } from 'lucide-react'
+import LastUpdated from '@/components/ui/LastUpdated'
 
 /** Timing view: mini-sectors take the width the three sector columns used to. */
 function StatusBadge({ status }: { status: string }) {
@@ -124,7 +125,11 @@ export default function LivePage() {
           </h1>
           <div style={{ fontSize: '12px', color: '#9CA3AF', marginTop: '6px' }}>
             {session ? `${session.circuit_short_name} · ${session.year}` : 'Detecting latest session…'}
-            {lastUpdate && ` · Updated ${lastUpdate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })} IST`}
+            {/* Relative, not a wall-clock time. On a timing screen the
+                question is "is this stale?", and "14:32:07" only answers it
+                if you happen to know what time it is. The absolute value is
+                still there on hover. */}
+            {lastUpdate && <> · <LastUpdated timestamp={lastUpdate} style={{ fontSize: '12px', letterSpacing: 'normal', textTransform: 'none', color: 'inherit' }} /></>}
             {status === 'live' && ` · Refreshing every 4s · Source: ${source === 'f1' ? 'F1 Live Timing' : 'OpenF1'}`}
             {delayMs > 0 && ` · Delayed ${Math.round(delayMs / 1000)}s`}
           </div>

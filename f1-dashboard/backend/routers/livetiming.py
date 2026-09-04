@@ -24,6 +24,8 @@ from fastapi import APIRouter
 from signalrcore.hub_connection_builder import HubConnectionBuilder
 from signalrcore.messages.completion_message import CompletionMessage
 
+from data.circuits import CIRCUITS, resolve_circuit_key
+from data.turn_names import names_for
 from utils import cache_get, cache_set, disk_cache_get, disk_cache_set
 
 router = APIRouter()
@@ -374,6 +376,85 @@ def _resolve_current_round():
     return year, int(ev["RoundNumber"]), str(ev.get("EventName", ""))
 
 
+def _round_has_started(year: int, rnd: int) -> bool:
+    """True once the weekend is under way (or over).
+
+    Distinct from `_round_is_final`: during a live weekend the round is not
+    final but FP1 telemetry exists, and geometry should come from it. This only
+    rules out rounds where nothing has run, so we can skip straight to the
+    fallback instead of failing seven session loads first — which is most of
+    the minute an upcoming round used to spend.
+    """
+    import fastf1
+    import pandas as pd
+
+    try:
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
+        row = schedule[schedule["RoundNumber"] == rnd]
+        if len(row) == 0:
+            return False
+        # EventDate is the Sunday; practice starts a couple of days earlier.
+        start = pd.to_datetime(row.iloc[0]["EventDate"]) - pd.Timedelta(days=3)
+        return pd.Timestamp(datetime.now(timezone.utc)).tz_localize(None) >= start
+    except Exception:  # noqa: BLE001
+        # Unknown: assume it has, so a schedule hiccup degrades to the old
+        # behaviour rather than silently serving last year's shape.
+        return True
+
+
+def _circuit_location(year: int, rnd: int) -> str:
+    """The circuit's location for a round, from the published schedule.
+
+    Works for races that have not happened yet — the schedule is released
+    months ahead, while telemetry only exists once cars have run.
+    """
+    import fastf1
+
+    try:
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
+        row = schedule[schedule["RoundNumber"] == rnd]
+        if len(row) == 0:
+            return ""
+        return str(row.iloc[0].get("Location", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+#: How far back to look for a previous running of the same circuit. Three
+#: seasons covers a race that skipped a year (Imola, Zandvoort) without
+#: trawling through the whole archive on a cache miss.
+_GEOMETRY_FALLBACK_SEASONS = 3
+
+
+def _previous_running(year: int, rnd: int) -> tuple[int, int] | None:
+    """(year, round) of the last time this circuit was raced before `year`.
+
+    The geometry endpoint reads a circuit's shape out of session telemetry, so
+    an upcoming round has nothing to read and the map renders empty — which is
+    exactly what the landing page shows for the *next* race, the one round a
+    visitor is most likely to be looking at. A circuit's layout does not change
+    between seasons, so last year's running of the same track is the correct
+    shape rather than an approximation of it.
+    """
+    import fastf1
+
+    location = _circuit_location(year, rnd)
+    if not location:
+        return None
+
+    for back in range(1, _GEOMETRY_FALLBACK_SEASONS + 1):
+        prev_year = year - back
+        try:
+            schedule = fastf1.get_event_schedule(prev_year, include_testing=False)
+            match = schedule[schedule["Location"] == location]
+            if len(match) == 0:
+                continue
+            return prev_year, int(match.iloc[0]["RoundNumber"])
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def _load_track_session(year: int, rnd: int):
     """Load the earliest session of the weekend that has usable position data
     and return (session, fastest_lap). Returns (None, None) if none available."""
@@ -393,6 +474,93 @@ def _load_track_session(year: int, rnd: int):
         except Exception:  # noqa: BLE001 — session not available yet
             continue
     return None, None
+
+
+def _trace_pit_lane(session) -> list[list[float]]:
+    """The pit lane, traced from a car that actually drove down it.
+
+    There is no pit-lane geometry in fastf1 — only the racing line. But a car
+    between its `PitInTime` and the next lap's `PitOutTime` is, by definition,
+    in the pit lane, and its position samples over that window ARE the lane.
+    So this is measured, not drawn: the same provenance as the track outline.
+
+    Two things have to be filtered out or the trace is nonsense:
+
+      - a car that retired into the garage, or a practice run where it sat in
+        the box for twenty minutes. Ranking on path length picks the car that
+        covered the most ground rather than the one that idled longest;
+      - the stationary cluster at the box itself, which is several hundred
+        samples at one point. Thinning to a minimum spacing drops it.
+
+    The straightness test at the end is what separates a lane traversal from a
+    car milling about in the paddock: a real pit lane runs end to end, so the
+    distance between its endpoints is most of its path length.
+    """
+    import numpy as np
+    import pandas as pd
+
+    try:
+        laps = session.laps
+        pos_data = session.pos_data
+        if laps is None or not pos_data:
+            return []
+    except Exception:  # noqa: BLE001 — session loaded without laps/telemetry
+        return []
+
+    best: tuple[float, np.ndarray] | None = None
+    try:
+        in_laps = laps[laps["PitInTime"].notna()]
+    except Exception:  # noqa: BLE001
+        return []
+
+    for _, lap in in_laps.iterrows():
+        try:
+            drv = lap["DriverNumber"]
+            t_in = lap["PitInTime"]
+            nxt = laps[(laps["DriverNumber"] == drv) & (laps["LapNumber"] == lap["LapNumber"] + 1)]
+            if len(nxt) == 0 or pd.isna(nxt.iloc[0]["PitOutTime"]):
+                continue
+            t_out = nxt.iloc[0]["PitOutTime"]
+            dur = float((t_out - t_in).total_seconds())
+            # Wide enough to cover a practice in-and-out, tight enough to skip
+            # a retirement. Path length does the real discrimination below.
+            if not (10.0 <= dur <= 240.0):
+                continue
+            pos = pos_data.get(drv)
+            if pos is None:
+                continue
+            seg = pos[(pos["Time"] >= t_in) & (pos["Time"] <= t_out)]
+            seg = seg[(seg["X"] != 0) | (seg["Y"] != 0)]
+            if len(seg) < 40:
+                continue
+            xy = seg[["X", "Y"]].to_numpy(dtype=float)
+            path = float(np.sum(np.hypot(*np.diff(xy, axis=0).T)))
+            if best is None or path > best[0]:
+                best = (path, xy)
+        except Exception:  # noqa: BLE001 — one bad lap must not lose the trace
+            continue
+
+    if best is None:
+        return []
+    path, xy = best
+
+    # Thin to a minimum spacing: kills the stationary cluster at the box and
+    # keeps the payload small enough to ship with the outline.
+    kept = [xy[0]]
+    for p in xy[1:]:
+        if float(np.hypot(*(p - kept[-1]))) > 40.0:
+            kept.append(p)
+    if len(kept) < 8:
+        return []
+    arr = np.array(kept)
+
+    # End-to-end, not a wander. A car circulating in the paddock can rack up
+    # path length without ever describing a lane.
+    span = float(np.hypot(*(arr[-1] - arr[0])))
+    if span < 0.45 * path:
+        return []
+
+    return [[float(x), float(y)] for x, y in arr]
 
 
 def _round_is_final(year: int, rnd: int) -> bool:
@@ -480,12 +648,17 @@ async def track_outline():
                 "points": details["points"],
                 "corners": details.get("corners", []),
                 "rotation": details.get("rotation", 0.0),
+                "pit_lane": details.get("pit_lane", []),
+                "circuit": details.get("circuit"),
+                "circuit_key": details.get("circuit_key"),
             }
         # Details came back empty — fall back to the plain outline builder,
         # which has its own cache and may still have the shape.
         outline = _build_outline(year, rnd, name)
         outline.setdefault("corners", [])
         outline.setdefault("rotation", 0.0)
+        outline.setdefault("pit_lane", [])
+        outline.setdefault("circuit", None)
         return outline
 
     return await asyncio.to_thread(_build)
@@ -506,9 +679,34 @@ def _build_track_details(year: int, round: int) -> dict:
         return {"year": year, "round": round, "name": "", "points": [],
                 "corners": [], "marshal_sectors": [], "rotation": 0.0}
 
-    # Reuse the outline builder + its cache. Also grab the session so we can
-    # pull circuit_info from the same fastf1 load.
-    session, lap = _load_track_session(year, round)
+    # Geometry borrowed from a past season is immutable, so it belongs on disk.
+    # In memory alone, every restart pays another ~70s fastf1 load before the
+    # landing page can draw the next race's circuit at all.
+    disk_key = f"track_details_v2_{ck}"  # v2: adds pit_lane, circuit facts and turn names
+    hit = disk_cache_get(disk_key)
+    if hit is not None:
+        _details_cache[ck] = hit
+        return hit
+
+    # Only attempt this round's own sessions if the weekend has actually run.
+    # For an upcoming race all seven attempts fail slowly, and that wasted
+    # minute is what made the next race's circuit render as an endless shimmer.
+    session, lap = (None, None)
+    if _round_has_started(year, round):
+        session, lap = _load_track_session(year, round)
+
+    # Still nothing — an upcoming race. Borrow the same circuit's geometry from
+    # its last running rather than serving an empty outline; a layout does not
+    # change between seasons. `source_year`/`source_round` are where the shape
+    # actually came from, while `year`/`round` stay as asked.
+    source_year, source_round = year, round
+    if session is None:
+        previous = _previous_running(year, round)
+        if previous is not None:
+            session, lap = _load_track_session(*previous)
+            if session is not None:
+                source_year, source_round = previous
+
     # Prefer the session's own event name; fall back to the outline cache.
     name = _track_cache.get(ck, {}).get("name", "")
     if session is not None:
@@ -516,17 +714,46 @@ def _build_track_details(year: int, round: int) -> dict:
             name = str(session.event.get("EventName", "") or name)
         except Exception:  # noqa: BLE001
             pass
-    outline = _build_outline(year, round, name)
+    # Built against the season the geometry came from — passing the requested
+    # year here would send it looking for a session that does not exist yet.
+    outline = _build_outline(source_year, source_round, name)
 
     result = {
         "year": year,
         "round": round,
         "name": name,
+        #: The season the geometry was actually measured in. Equal to `year`
+        #: normally; earlier when this is an upcoming race borrowing the same
+        #: circuit's shape from its last running.
+        "source_year": source_year,
         "points": outline.get("points", []),
         "corners": [],
         "marshal_sectors": [],
         "rotation": 0.0,
+        #: Measured from a car's own pit-in/pit-out samples — see _trace_pit_lane.
+        "pit_lane": [],
+        #: Static circuit facts (length, laps, lap record, type…) so the map can
+        #: caption itself without a second round trip to /api/circuits.
+        "circuit": None,
     }
+
+    # Circuit identity, from the event's location. This is what lets the map
+    # put a NAME on a turn: fastf1 numbers corners but never names them.
+    circuit_key = None
+    if session is not None:
+        try:
+            circuit_key = resolve_circuit_key(str(session.event.get("Location", "") or ""))
+        except Exception:  # noqa: BLE001
+            circuit_key = None
+    if circuit_key:
+        result["circuit_key"] = circuit_key
+        result["circuit"] = {
+            k: v for k, v in (CIRCUITS.get(circuit_key) or {}).items()
+            # svgPath is a ~10KB traced outline and this payload already carries
+            # the real one in `points`; shipping both doubles the response.
+            if k != "svgPath"
+        }
+    turn_names = names_for(circuit_key)
 
     if session is not None:
         try:
@@ -536,12 +763,16 @@ def _build_track_details(year: int, round: int) -> dict:
                 corners = getattr(ci, "corners", None)
                 if corners is not None and len(corners) > 0:
                     for _, c in corners.iterrows():
+                        number = int(c.get("Number", 0))
                         result["corners"].append({
                             "x": float(c.get("X", 0.0)),
                             "y": float(c.get("Y", 0.0)),
-                            "number": int(c.get("Number", 0)),
+                            "number": number,
                             "letter": str(c.get("Letter", "") or ""),
                             "distance": float(c.get("Distance", 0.0) or 0.0),
+                            # Empty for the many turns that genuinely have no
+                            # name; the map falls back to the number alone.
+                            "name": turn_names.get(number, ""),
                         })
                 marshals = getattr(ci, "marshal_sectors", None)
                 if marshals is not None and len(marshals) > 0:
@@ -554,9 +785,18 @@ def _build_track_details(year: int, round: int) -> dict:
         except Exception:  # noqa: BLE001 — circuit_info unavailable; outline still works
             pass
 
+        # Same session, already loaded with laps + telemetry, so this costs a
+        # filter rather than another fastf1 fetch.
+        result["pit_lane"] = _trace_pit_lane(session)
+
     # Only cache once we have real outline data (mirrors outline caching)
     if result["points"]:
         _details_cache[ck] = result
+    # Safe to persist when the shape is settled: either this round has raced,
+    # or the geometry was borrowed from a season that has. A live weekend's
+    # partial data stays in memory only, matching _build_outline's reasoning.
+    if result["points"] and (source_year != year or _round_is_final(year, round)):
+        disk_cache_set(disk_key, result)
     return result
 
 

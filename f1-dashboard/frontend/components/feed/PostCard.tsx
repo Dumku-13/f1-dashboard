@@ -1,11 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart, MessageCircle, Repeat2, Flag, Trash2, Send, ImageOff } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
 import { avatarColor, relTime, type FeedPost, type FeedComment } from './types'
 import Linkify from './Linkify'
+import { authHeaders, hasSession } from '@/lib/auth'
+import { usePow, powHeader } from '@/lib/pow'
+import { safeImageUrl } from '@/lib/sanitize'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface Props {
   post: FeedPost
@@ -36,7 +40,21 @@ export default function PostCard({
   post, myUsername, driverTeam, onToggleLike, onToggleFollow, onDelete, onRepost, isRepostSubCard, hideContent,
 }: Props) {
   const [imgBroken, setImgBroken] = useState(false)
+  // `window.confirm` blocks the whole tab, cannot be styled, and on iOS
+  // Safari is suppressed outright after a couple of uses — so a real
+  // destructive action was relying on a dialog that may never appear.
+  const [pendingAction, setPendingAction] = useState<'delete' | 'repost' | null>(null)
+  // Vetted on the way in by safe_url.py, and again here on the way out: rows
+  // written before that guard existed are still in feed.db, and a stored
+  // `javascript:`/`data:` src would run when this renders.
+  const imageSrc = safeImageUrl(post.image_url)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  // Only solve once the comment box is actually open. A feed page renders
+  // 30 of these cards, and pre-solving in every one would mean 30 challenge
+  // requests and 30 pointless solves for someone who is just scrolling.
+  const [signedIn, setSignedIn] = useState(true)
+  useEffect(() => { setSignedIn(hasSession()) }, [])
+  const pow = usePow('content', commentsOpen && !signedIn)
   const [comments, setComments] = useState<FeedComment[] | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
@@ -69,7 +87,8 @@ export default function PostCard({
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}/comments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(), ...powHeader(signedIn ? null : pow.consume()) },
         body: JSON.stringify({ username: myUsername, text }),
       })
       if (res.ok) {
@@ -89,12 +108,13 @@ export default function PostCard({
     onToggleLike(post)
   }
 
-  const doRepost = () => {
-    if (window.confirm(`Repost ${post.username}'s post to your feed?`)) onRepost(post)
-  }
+  const doRepost = () => setPendingAction('repost')
+  const doDelete = () => setPendingAction('delete')
 
-  const doDelete = () => {
-    if (window.confirm('Delete this post? This cannot be undone.')) onDelete(post)
+  const confirmPending = () => {
+    if (pendingAction === 'delete') onDelete(post)
+    if (pendingAction === 'repost') onRepost(post)
+    setPendingAction(null)
   }
 
   const submitReport = async () => {
@@ -102,7 +122,8 @@ export default function PostCard({
     try {
       const res = await fetch(`${BACKEND_URL}/api/feed/posts/${post.id}/report`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ username: myUsername, reason }),
       })
       if (res.ok || res.status === 409) {
@@ -161,16 +182,16 @@ export default function PostCard({
                 <Linkify text={post.text} driverTeam={driverTeam} />
               </div>
 
-              {post.image_url && !imgBroken && (
+              {imageSrc && !imgBroken && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={post.image_url}
+                  src={imageSrc}
                   alt=""
                   onError={() => setImgBroken(true)}
                   style={{ maxHeight: '380px', width: 'auto', maxWidth: '100%', borderRadius: '12px', marginTop: '10px', display: 'block', objectFit: 'cover' }}
                 />
               )}
-              {post.image_url && imgBroken && (
+              {imageSrc && imgBroken && (
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '6px', marginTop: '10px', padding: '10px',
                   borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.12)',
@@ -329,6 +350,20 @@ export default function PostCard({
           </AnimatePresence>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingAction !== null}
+        tone={pendingAction === 'delete' ? 'danger' : 'default'}
+        title={pendingAction === 'delete' ? 'Delete this post?' : 'Repost to your feed?'}
+        body={
+          pendingAction === 'delete'
+            ? 'It goes for good — along with its likes and comments. This cannot be undone.'
+            : `${post.username}'s post will appear on your feed, credited to them.`
+        }
+        confirmLabel={pendingAction === 'delete' ? 'Delete' : 'Repost'}
+        onConfirm={confirmPending}
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   )
 }

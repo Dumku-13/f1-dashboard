@@ -16,8 +16,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import fastf1
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
+
+from auth_guard import verify_identity
 from utils import cache_get, cache_set, disk_cache_get, disk_cache_set
 
 from data.circuits import CIRCUITS
@@ -62,6 +64,8 @@ _init()
 
 
 class SubmitIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str = Field(min_length=1, max_length=24)
     answers: list[int] = Field(min_length=NUM_QUESTIONS, max_length=NUM_QUESTIONS)
 
@@ -521,11 +525,11 @@ async def daily_quiz(username: str = Query("")):
 
 
 @router.post("/submit")
-async def submit_quiz(body: SubmitIn):
+async def submit_quiz(body: SubmitIn, request: Request):
     date_str = _today_str()
-    username = body.username.strip()
-    if not username:
-        raise HTTPException(400, "username required")
+    # A quiz score is a leaderboard position; an unbound name lets anyone post
+    # a perfect run under someone else's.
+    username = verify_identity(body.username, request)
 
     questions = await asyncio.to_thread(_questions_for_date, date_str)
     if not questions:
