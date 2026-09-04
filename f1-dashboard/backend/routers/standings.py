@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import fastf1
 import pandas as pd
 from datetime import datetime, timezone
@@ -216,6 +217,40 @@ def _compute_standings(year: int):
 # /standings and /analytics all fire at once — starts its own recompute.
 _compute_locks: dict[int, asyncio.Lock] = {}
 
+# The asyncio lock above only serialises coroutines on the event loop. The
+# boot-time warm in cache_warm.py is a plain thread and is invisible to it, so
+# a request arriving mid-warm would start a SECOND full computation. Two at
+# once peak at roughly twice the memory, which on a 512MB instance is the
+# difference between finishing and being OOM-killed — observed in production,
+# not theorised. Every caller goes through compute_and_persist() below, which
+# holds this lock, so there is exactly one computation in flight per process.
+_compute_thread_lock = threading.Lock()
+
+
+def compute_and_persist(year: int) -> dict:
+    """Standings for `year`, computed at most once across all threads.
+
+    Blocking — call it from a worker thread, never on the event loop. The
+    cache is re-checked after the lock is acquired so that whoever waited gets
+    the winner's result instead of repeating two minutes of work.
+    """
+    with _compute_thread_lock:
+        done = _completed_round_count(year)
+        # Standings for a fixed set of finished rounds never change, so persist
+        # them keyed by that count: the first computation pays the fastf1 cost,
+        # every later one is instant, and the key changes by itself the moment
+        # a new race is scored.
+        disk_key = f"standings_{year}_r{done}" if done >= 0 else None
+        if disk_key:
+            persisted = disk_cache_get(disk_key)
+            if persisted:
+                return persisted
+
+        result = _compute_standings(year)
+        if disk_key and result.get("drivers"):
+            disk_cache_set(disk_key, result)
+        return result
+
 
 def _completed_round_count(year: int) -> int:
     """How many rounds of `year` have finished. Cheap — schedule only."""
@@ -248,22 +283,11 @@ async def get_standings(year: int = 2026):
         if cached:
             return cached
 
-        # Standings for a fixed set of finished rounds never change, so persist
-        # them keyed by that count: the first computation of the week pays the
-        # ~40s fastf1 cost, every later one (and every restart) is instant, and
-        # the key changes by itself the moment a new race is scored.
-        done = await asyncio.to_thread(_completed_round_count, year)
-        disk_key = f"standings_{year}_r{done}" if done >= 0 else None
-        if disk_key:
-            persisted = disk_cache_get(disk_key)
-            if persisted:
-                cache_set(ck, persisted)
-                return persisted
-
-        result = await asyncio.to_thread(_compute_standings, year)
+        # Off the event loop: this blocks on a thread lock shared with the
+        # boot-time warm, and holding the loop here would stall every other
+        # endpoint for the couple of minutes a cold computation takes.
+        result = await asyncio.to_thread(compute_and_persist, year)
         cache_set(ck, result)
-        if disk_key and result.get("drivers"):
-            disk_cache_set(disk_key, result)
         return result
 
 

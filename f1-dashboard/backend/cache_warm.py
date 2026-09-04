@@ -57,34 +57,23 @@ def warm_standings(year: int | None = None) -> bool:
     # Imported lazily: at module scope this would drag fastf1 and pandas into
     # every importer of this file, including the one that only wants the
     # constants above.
-    from routers.standings import _compute_standings, _completed_round_count
-    from utils import disk_cache_get, disk_cache_set
+    from routers.standings import compute_and_persist
 
-    done = _completed_round_count(year)
-    if done < 0:
-        log.warning("cache warm skipped: could not read the %s schedule", year)
-        return False
-
-    # Must match routers/standings.py exactly. A key that disagrees warms a
-    # file nothing will ever read, and the symptom is silence.
-    key = f"standings_{year}_r{done}"
-
-    if disk_cache_get(key):
-        log.info("cache warm: %s already warm", key)
-        return False
-
-    log.info("cache warm: computing %s standings over %d rounds...", year, done)
-    result = _compute_standings(year)
+    # Deliberately the same entry point the HTTP handler uses. It owns the
+    # cache key, the "already warm" check and the thread lock, so a request
+    # that lands mid-warm waits for this result instead of starting a second
+    # computation alongside it - two at once is what exhausted the 512MB.
+    log.info("cache warm: ensuring %s standings are cached...", year)
+    result = compute_and_persist(year)
 
     if not result.get("drivers"):
-        log.warning("cache warm skipped: %s produced no drivers", year)
+        log.warning("cache warm: %s produced no drivers", year)
         return False
 
-    disk_cache_set(key, result)
     leader = result["drivers"][0]
     log.info(
-        "cache warm: wrote %s in %.0fs - %d drivers, leader %s on %s",
-        key, time.time() - started, len(result["drivers"]),
+        "cache warm: %s ready in %.0fs - %d drivers, leader %s on %s",
+        year, time.time() - started, len(result["drivers"]),
         leader["abbreviation"], leader["points"],
     )
     return True
@@ -101,8 +90,26 @@ def _warm_in_background() -> None:
         log.exception("cache warm failed; standings will compute on demand")
 
 
+def _ensure_visible_logging() -> None:
+    """Make this module's INFO lines actually reach the deploy logs.
+
+    uvicorn configures its own loggers and leaves the root logger alone, so a
+    plain `getLogger(__name__).info()` falls through to logging's last-resort
+    handler, which drops anything below WARNING. The warm would then run —
+    or fail — with nothing to show for it, which is exactly the situation
+    that made the original OOM look like an unexplained 502.
+    """
+    if log.handlers or logging.getLogger().handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("cache-warm: %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+
+
 def start_background_warm() -> threading.Thread | None:
     """Kick the warm off on a daemon thread. Set WARM_ON_STARTUP=0 to disable."""
+    _ensure_visible_logging()
     if os.getenv("WARM_ON_STARTUP", "1").strip().lower() in {"0", "false", "no"}:
         log.info("cache warm disabled by WARM_ON_STARTUP")
         return None
