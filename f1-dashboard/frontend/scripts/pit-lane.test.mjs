@@ -1,14 +1,22 @@
 /**
- * The `/live` mini-map's idle grid — cars parked along the start straight.
+ * Projection geometry for the `/live` track map.
  *
  * This exists because the thing it checks cannot be looked at. The agent
- * browser pane never composites, so screenshots fail outright, and "22 dots
- * appear in the DOM" says nothing about *where* they were drawn — a bug that
- * stacks every car on one pixel, or flings them off the viewBox, reads exactly
- * the same in the accessibility tree.
+ * browser pane never composites, so screenshots fail outright, and "the path
+ * is in the DOM" says nothing about *where* it was drawn — geometry that
+ * collapses the circuit to a dot, or flings the pit lane off the viewBox,
+ * reads exactly the same in the accessibility tree.
  *
- * So the placement is checked numerically, against the real traced Zandvoort
+ * So placement is checked numerically, against the real traced Zandvoort
  * outline rather than invented points.
+ *
+ * It used to cover `pitLaneSlots`, which parked the classified field along the
+ * start straight when no live positions were available. Those stand-in bubbles
+ * were removed from the map — with car positions unavailable they implied
+ * twenty-two measurements that did not exist — and the helper went with them.
+ * What replaced it is the real pit lane, traced on the backend from a car's own
+ * pit-in/pit-out samples, so the checks below are about projecting measured
+ * geometry into the drawing surface.
  */
 
 import { createJiti } from 'jiti'
@@ -19,7 +27,7 @@ import { dirname, join } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const jiti = createJiti(import.meta.url)
 
-const { VIEW_W, VIEW_H, CAR_RADIUS, boundsOf, makeProject, centroidOf, pitLaneSlots } =
+const { VIEW_W, VIEW_H, PAD, boundsOf, makeProject, centroidOf } =
   await jiti.import('../components/live/pitLane.ts')
 
 const track = JSON.parse(
@@ -33,80 +41,83 @@ function check(name, cond, detail = '') {
   else { failures++; console.log(`  FAIL  ${name}${detail ? ' — ' + detail : ''}`) }
 }
 
-console.log('\npit-lane: idle grid placement on the real Zandvoort outline')
+console.log('\ntrack-map geometry: projection on the real Zandvoort outline')
 
 const bounds = boundsOf(raw)
 check('outline produces bounds', !!bounds)
 
 const project = makeProject(bounds)
 const projected = raw.map(([x, y]) => project(x, y))
-const centre = centroidOf(projected)
 
-const COUNT = 22
-const inward = [centre[0] - projected[0][0], centre[1] - projected[0][1]]
-const slots = pitLaneSlots(projected, COUNT, inward)
-
-// --- 1. a full grid ---------------------------------------------------------
-check('places every car', slots.length === COUNT, `got ${slots.length} of ${COUNT}`)
-
-// --- 2. inside the drawing surface -----------------------------------------
-// Off-viewBox cars are invisible but still present in the DOM, which is the
+// --- 1. everything lands inside the drawing surface -------------------------
+// Off-viewBox geometry is invisible but still present in the DOM, which is the
 // failure mode this whole file exists to catch.
-const outside = slots.filter(([x, y]) => x < 0 || x > VIEW_W || y < 0 || y > VIEW_H)
-check('every car is inside the viewBox', outside.length === 0,
+const outside = projected.filter(([x, y]) => x < 0 || x > VIEW_W || y < 0 || y > VIEW_H)
+check('every outline point is inside the viewBox', outside.length === 0,
   `${outside.length} outside 0..${VIEW_W} x 0..${VIEW_H}`)
 
-// --- 3. distinct, not stacked ----------------------------------------------
-let minSep = Infinity
-for (let i = 0; i < slots.length; i++) {
-  for (let j = i + 1; j < slots.length; j++) {
-    const d = Math.hypot(slots[i][0] - slots[j][0], slots[i][1] - slots[j][1])
-    if (d < minSep) minSep = d
-  }
-}
-// Against the real drawn radius, not a magic number: two cars closer than a
-// full diameter overlap on screen, which is the actual defect.
-check('no two cars overlap on screen', minSep >= CAR_RADIUS * 2,
-  `closest pair ${minSep.toFixed(1)}px apart, need ${CAR_RADIUS * 2}px`)
+// --- 2. the circuit actually fills the surface ------------------------------
+// A projection bug that scales everything to a tenth still keeps all points
+// "inside" — so check the shape uses the room it was given.
+const px = projected.map(p => p[0]), py = projected.map(p => p[1])
+const spanX = Math.max(...px) - Math.min(...px)
+const spanY = Math.max(...py) - Math.min(...py)
+const fills = spanX >= VIEW_W - PAD * 2 - 1 || spanY >= VIEW_H - PAD * 2 - 1
+check('the circuit fills one axis of the surface', fills,
+  `span ${spanX.toFixed(0)}x${spanY.toFixed(0)} in ${VIEW_W}x${VIEW_H} with pad ${PAD}`)
 
-// --- 4. even spacing WITHIN a column ---------------------------------------
-// The layout is columns of 8, so the step from the bottom of one column to the
-// top of the next is legitimately large — measuring every consecutive pair
-// would flag the column break as a defect. What must be even is the spacing
-// down a column.
-const PER_COL = 8
-const inColumnGaps = []
-for (let i = 1; i < slots.length; i++) {
-  if (i % PER_COL === 0) continue // column break
-  inColumnGaps.push(Math.hypot(slots[i][0] - slots[i - 1][0], slots[i][1] - slots[i - 1][1]))
-}
-const avg = inColumnGaps.reduce((a, b) => a + b, 0) / inColumnGaps.length
-const worst = Math.max(...inColumnGaps.map(g => Math.abs(g - avg)))
-check('cars are evenly spaced down each column', worst < 0.5,
-  `avg ${avg.toFixed(1)}px, worst deviation ${worst.toFixed(1)}px`)
+// --- 3. aspect ratio is preserved -------------------------------------------
+// One shared scale for both axes, or the circuit renders stretched.
+const srcAspect = (bounds.maxX - bounds.minX) / (bounds.maxY - bounds.minY)
+const dstAspect = spanX / spanY
+check('aspect ratio is preserved', Math.abs(srcAspect - dstAspect) < 0.02,
+  `source ${srcAspect.toFixed(3)} vs projected ${dstAspect.toFixed(3)}`)
 
-// --- 5. a compact block, not a scatter --------------------------------------
-// The failure this replaces: 22 bubbles strung along a diagonal, filling the
-// map corner-to-corner and overlapping the circuit. A pit queue should occupy a
-// tidy block.
-const bx = Math.max(...slots.map(s => s[0])) - Math.min(...slots.map(s => s[0]))
-const by = Math.max(...slots.map(s => s[1])) - Math.min(...slots.map(s => s[1]))
-check('the queue is a compact block', bx <= VIEW_W * 0.35 && by <= VIEW_H * 0.65,
-  `block is ${bx.toFixed(0)}x${by.toFixed(0)} in a ${VIEW_W}x${VIEW_H} view`)
+// --- 4. Y is flipped ---------------------------------------------------------
+// Track coords grow upward, SVG grows downward. Get this wrong and the circuit
+// renders mirrored — which looks plausible and is completely wrong.
+const hiY = raw.reduce((a, b) => (b[1] > a[1] ? b : a))
+const loY = raw.reduce((a, b) => (b[1] < a[1] ? b : a))
+check('Y axis is flipped for SVG', project(hiY[0], hiY[1])[1] < project(loY[0], loY[1])[1],
+  'the northernmost point must project ABOVE the southernmost')
 
-// --- 6. actually laid out, not stacked on one point -------------------------
-const fromStart = slots.map(s => Math.hypot(s[0] - projected[0][0], s[1] - projected[0][1]))
-const spread = Math.max(...fromStart) - Math.min(...fromStart)
-check('the queue is laid out, not stacked', spread > 40, `spread only ${spread.toFixed(1)}px`)
+// --- 5. the fullscreen padding override -------------------------------------
+// The expanded map passes a smaller pad so the track fills more of the screen.
+// If the parameter is ignored, expanding gains nothing.
+const tight = makeProject(bounds, 6)
+const tp = raw.map(([x, y]) => tight(x, y))
+const tSpanX = Math.max(...tp.map(p => p[0])) - Math.min(...tp.map(p => p[0]))
+const tSpanY = Math.max(...tp.map(p => p[1])) - Math.min(...tp.map(p => p[1]))
+check('a smaller pad draws the circuit bigger', tSpanX > spanX && tSpanY > spanY,
+  `pad ${PAD}: ${spanX.toFixed(0)}x${spanY.toFixed(0)} vs pad 6: ${tSpanX.toFixed(0)}x${tSpanY.toFixed(0)}`)
+const tightOutside = tp.filter(([x, y]) => x < 0 || x > VIEW_W || y < 0 || y > VIEW_H)
+check('the tighter projection still fits the viewBox', tightOutside.length === 0,
+  `${tightOutside.length} outside`)
+
+// --- 6. the centroid used to push turn labels outward -----------------------
+const centre = centroidOf(projected)
+const inside = centre[0] > 0 && centre[0] < VIEW_W && centre[1] > 0 && centre[1] < VIEW_H
+check('centroid falls inside the surface', inside, `centroid at ${centre.map(v => v.toFixed(0))}`)
+
+// --- 7. a pit-lane-shaped path projects sanely ------------------------------
+// The backend ships pit_lane in the same coordinate space as the outline, so
+// it must project through the same function without special-casing.
+const pit = raw.slice(0, 40)
+const pitProjected = pit.map(([x, y]) => project(x, y))
+const pitOutside = pitProjected.filter(([x, y]) => x < 0 || x > VIEW_W || y < 0 || y > VIEW_H)
+check('a pit-lane path projects inside the viewBox', pitOutside.length === 0,
+  `${pitOutside.length} of ${pit.length} outside`)
+const distinct = new Set(pitProjected.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`)).size
+check('the pit-lane path does not collapse to a point', distinct > pit.length * 0.5,
+  `${distinct} distinct of ${pit.length}`)
 
 console.log(
-  `        ${slots.length} cars · ${avg.toFixed(1)}px apart down each column · block ${bx.toFixed(0)}x${by.toFixed(0)} · min separation ${minSep.toFixed(1)}px (radius ${CAR_RADIUS})`,
+  `        circuit ${spanX.toFixed(0)}x${spanY.toFixed(0)} at pad ${PAD} · ${tSpanX.toFixed(0)}x${tSpanY.toFixed(0)} at pad 6 · aspect ${dstAspect.toFixed(3)}`,
 )
 
-// --- 7. degenerate inputs are safe -----------------------------------------
-check('empty outline is safe', pitLaneSlots([], 22, [0, 1]).length === 0)
-check('zero cars is safe', pitLaneSlots(projected, 0, [0, 1]).length === 0)
-check('more cars than room still terminates', pitLaneSlots(projected, 999, [0, 1]).length <= 999)
+// --- 8. degenerate inputs are safe ------------------------------------------
+check('too few points yields no bounds', boundsOf([[1, 1]]) === null)
+check('a zero-area outline yields no bounds', boundsOf([[5, 5], [5, 5], [5, 5]]) === null)
 
-console.log(failures ? `\npit-lane: ${failures} FAILED\n` : '\npit-lane: all passed\n')
+console.log(failures ? `\ntrack-map geometry: ${failures} FAILED\n` : '\ntrack-map geometry: all passed\n')
 process.exit(failures ? 1 : 0)

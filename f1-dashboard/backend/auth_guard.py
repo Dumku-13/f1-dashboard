@@ -21,10 +21,36 @@ import sqlite3
 
 from fastapi import HTTPException, Request
 
+from bot_guard import verify_proof
+
 # Session resolution lives in the auth router: one implementation, so the
 # sessions/users join, the expiry rule and the CSRF check can't drift between
 # call sites.
 from routers.auth import db, enforce_csrf, resolve_caller
+
+
+def require_proof_from_guests(
+    request: Request, x_pow: str | None, scope: str = "content"
+) -> bool:
+    """Make anonymous writes cost something; leave signed-in ones alone.
+
+    Flood limits elsewhere are counted per username, and a bot rotating guest
+    names walks straight past them. A signed-in account already paid at
+    registration and is limited under a name it cannot spoof, so the proof is
+    asked for exactly where identity is missing.
+
+    Lives here rather than in one router because it is the rule for *every*
+    endpoint open to guests. It started out private to the feed, which is how
+    the AI engineer — the one endpoint that spends real money per call — ended
+    up with no guard at all.
+
+    Returns True when the caller is signed in, so callers that also want to
+    meter per-identity don't have to resolve the session a second time.
+    """
+    if resolve_caller(request) is not None:
+        return True
+    verify_proof(scope, x_pow)
+    return False
 
 
 def _account_for_name(name: str) -> sqlite3.Row | None:

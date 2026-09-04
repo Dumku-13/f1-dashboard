@@ -24,6 +24,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from bot_guard import check_honeypot, issue_challenge, verify_proof
+from client_ip import client_ip as resolve_client_ip
 
 router = APIRouter()
 
@@ -309,11 +310,22 @@ def current_user(request: Request) -> sqlite3.Row:
     return caller.user
 
 
-def _client_ip(request: Request) -> str:
-    """Best-effort client address for rate limiting. Behind the Next.js proxy
-    this is the proxy, which is why the per-IP ceilings are the loose half of
-    the budget and the per-name one does the real work."""
-    return request.client.host if request.client else "unknown"
+def _client_ip(request: Request) -> str | None:
+    """The caller's address, or None when it genuinely cannot be established.
+
+    None is not a failure to handle — it is the answer, and it means the per-IP
+    ceilings below must be skipped rather than applied to a value every visitor
+    shares. See client_ip.py for why a shared value is worse than no value:
+    behind an unconfigured proxy this used to collapse the whole site into one
+    bucket, so twenty bad passwords locked everybody out of signing in.
+    """
+    return resolve_client_ip(request)
+
+
+#: Stored on attempt rows whose address we could not establish, so the audit
+#: trail stays complete. Never used as a lookup key — the per-IP counts are
+#: skipped outright in that case rather than pointed at this sentinel.
+UNKNOWN_IP = "unknown"
 
 
 def _count_attempts(
@@ -330,10 +342,10 @@ def _count_attempts(
     return conn.execute(sql, params).fetchone()["n"]
 
 
-def _record_attempt(conn, kind: str, username: str | None, ip: str, now: float) -> None:
+def _record_attempt(conn, kind: str, username: str | None, ip: str | None, now: float) -> None:
     conn.execute(
         "INSERT INTO auth_attempts (kind, username, ip, created_at) VALUES (?, ?, ?, ?)",
-        (kind, username.lower() if username else None, ip, now),
+        (kind, username.lower() if username else None, ip or UNKNOWN_IP, now),
     )
     conn.execute(
         "DELETE FROM auth_attempts WHERE created_at < ?", (now - ATTEMPT_RETENTION_S,)
@@ -401,7 +413,16 @@ def register(
     ip = _client_ip(request)
     now = time.time()
     with db() as conn:
-        recent = _count_attempts(conn, "register", now - REGISTER_WINDOW_S, ip=ip)
+        # `ip is None` means we could not establish who this is. Counting that
+        # would put every visitor in one bucket, which is how this cap once
+        # limited the entire site to five new accounts an hour — so the cap is
+        # skipped instead, and the 17-bit proof of work above is what keeps
+        # bulk registration expensive until TRUSTED_PROXY_HOPS is configured.
+        recent = (
+            _count_attempts(conn, "register", now - REGISTER_WINDOW_S, ip=ip)
+            if ip is not None
+            else 0
+        )
         # Count the attempt, not just the win — otherwise a script probing which
         # paddock names are taken never trips the cap, since every probe 409s.
         if recent < MAX_REGISTRATIONS_PER_IP:
@@ -452,7 +473,12 @@ def login(
     with db() as conn:
         since = now - LOGIN_WINDOW_S
         spent_by_name = _count_attempts(conn, "login_fail", since, username=name)
-        spent_by_ip = _count_attempts(conn, "login_fail", since, ip=ip)
+        # Skipped entirely when the address is unknown. This is the check that
+        # used to lock every account on the site out of signing in after twenty
+        # failures from anyone at all; an unusable bucket must not be counted.
+        spent_by_ip = (
+            _count_attempts(conn, "login_fail", since, ip=ip) if ip is not None else 0
+        )
     if spent_by_name >= MAX_LOGIN_FAILS_PER_NAME or spent_by_ip >= MAX_LOGIN_FAILS_PER_IP:
         # A lockout is observable from the outside whatever we say here, so
         # there is nothing to protect by disguising it as a wrong password —

@@ -22,29 +22,33 @@ const TOWER_GRID = '36px minmax(100px,1.1fr) 60px 60px 76px 76px minmax(174px,2.
 const STINT_GRID = '36px minmax(100px,1.1fr) 60px 60px 42px 48px 56px minmax(190px,3fr)'
 
 /**
- * Collapsed timing view — three sector times where the mini-sector bars go.
+ * Collapsed timing view — sector times AND the mini-sector bars.
  *
- * `TOWER_GRID`'s mini-sector column is `minmax(174px, 2.1fr)`: it demands width
- * and then takes the largest share of whatever is spare. That is what kept the
- * tower wide and the track map beside it small enough that driver labels were
- * unreadable. Sector times answer the same question at a glance — who is quick
- * where, and in what colour — from fixed columns that never grow.
+ * The bars used to be expand-only, on the reasoning that `minmax(174px,2.1fr)`
+ * took the largest share of the spare width and left the track map beside the
+ * tower too small to read. That trade is off the table now the map opens
+ * fullscreen on its own (see TrackMap's expand control): the map no longer
+ * depends on the tower staying narrow, so where a car is *losing* time goes
+ * back to being visible without clicking anything.
  *
- * The segmented bars aren't lost, they move behind EXPAND, which already means
- * "give the tower the whole page". Detail belongs in the detail view.
+ * The bars sit after S3 rather than replacing it. The sector times say who is
+ * quick; the bars say where — they answer different questions and the tower
+ * had both before. Narrower here than in TOWER_GRID (140 vs 174) so the
+ * collapsed row still fits a 1280px screen without scrolling.
  */
 const COLLAPSED_TOWER_GRID = [
   '38px',                    // POS
-  'minmax(96px,1.6fr)',      // DRIVER
-  'minmax(62px,1fr)',        // GAP
-  'minmax(62px,1fr)',        // INT
-  'minmax(74px,1fr)',        // LAST LAP
-  'minmax(74px,1fr)',        // BEST LAP
-  'minmax(62px,1fr)',        // S1
-  'minmax(62px,1fr)',        // S2
-  'minmax(62px,1fr)',        // S3
-  'minmax(42px,0.6fr)',      // LAPS
-  'minmax(44px,0.6fr)',      // PIT
+  'minmax(96px,1.4fr)',      // DRIVER
+  'minmax(58px,0.9fr)',      // GAP
+  'minmax(58px,0.9fr)',      // INT
+  'minmax(72px,1fr)',        // LAST LAP
+  'minmax(72px,1fr)',        // BEST LAP
+  'minmax(56px,0.9fr)',      // S1
+  'minmax(56px,0.9fr)',      // S2
+  'minmax(56px,0.9fr)',      // S3
+  'minmax(140px,1.8fr)',     // MINI-SECTORS
+  'minmax(40px,0.5fr)',      // LAPS
+  'minmax(42px,0.5fr)',      // PIT
   'minmax(68px,0.8fr)',      // TYRE — fits "S 24L (+7)"; the used-set suffix
                              //   clipped by 6px at 56px once the type grew
 ].join(' ')
@@ -260,9 +264,10 @@ function TowerRowView({ row, index, view, maxStintLaps, phone, expanded }: { row
             {fmtLap(row.bestLapDuration)}
           </span>
 
-          {/* Segmented bars need ~174px and grow to fill; the three sector
-              times need 58px each and don't. Same question, a quarter of the
-              width — which is what the map beside the tower gets back. */}
+          {/* Both views carry the bars now. Expanded drops the three sector
+              times because at that width the bars are detailed enough to read
+              a sector off directly; collapsed keeps the times, because a
+              140px bar tells you where but not how much. */}
           {expanded ? (
             <MiniSectors miniSectors={row.miniSectors} sectors={row.sectors} />
           ) : (
@@ -270,6 +275,7 @@ function TowerRowView({ row, index, view, maxStintLaps, phone, expanded }: { row
               <SectorCell sector={row.sectors[0]} />
               <SectorCell sector={row.sectors[1]} />
               <SectorCell sector={row.sectors[2]} />
+              <MiniSectors miniSectors={row.miniSectors} sectors={row.sectors} />
             </>
           )}
         </>
@@ -387,7 +393,7 @@ export default function TimingTower({
           {view === 'timing' && !phone && (
             expanded
               ? <><span>LAST LAP</span><span>BEST LAP</span><span>MINI-SECTORS</span></>
-              : <><span>LAST LAP</span><span>BEST LAP</span><span>S1</span><span>S2</span><span>S3</span></>
+              : <><span>LAST LAP</span><span>BEST LAP</span><span>S1</span><span>S2</span><span>S3</span><span>MINI-SECTORS</span></>
           )}
           {!phone && <span style={{ textAlign: 'center' }}>LAPS</span>}
           {!phone && <span style={{ textAlign: 'center' }}>PIT</span>}

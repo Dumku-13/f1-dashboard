@@ -49,6 +49,12 @@ DIFFICULTY = {
     "register": 17,
     "login": 14,
     "content": 15,
+    # The one scope where a request costs real money rather than a row in
+    # SQLite — every call is a billed LLM request on our key. Priced like
+    # registration (~0.2-0.5s) because unlike a feed post there is no cheap
+    # way to undo the spend, and a question is not something anyone asks in a
+    # tight loop.
+    "engineer": 17,
 }
 
 # A challenge is worthless after this, which caps how far ahead a bot can
@@ -67,6 +73,7 @@ MIN_FILL_S = {
     "register": 1.5,
     "login": 0.0,   # a password manager fills and submits genuinely fast
     "content": 0.0,
+    "engineer": 0.0,  # a quick-prompt chip is one tap — no floor to enforce
 }
 
 
