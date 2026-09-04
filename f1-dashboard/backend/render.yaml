@@ -31,10 +31,20 @@ services:
     # Render injects $PORT; binding to a fixed 8000 makes the service
     # unreachable and the failure looks like a timeout, not a config error.
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /docs
+    # /api/health is a plain JSON handler; /docs renders the whole OpenAPI
+    # page just to prove the process is alive.
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.9"
+      # Caps glibc's per-thread malloc arenas. fastf1 and pandas allocate
+      # across several threads, and the default (8 x CPU cores) lets each keep
+      # its own free lists, so freed memory shows up as resident anyway. On a
+      # 512MB instance that fragmentation was a meaningful slice of the
+      # headroom the standings computation needs. Costs a little allocator
+      # contention, which this workload does not notice.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
       # Only needed if anything calls this API cross-origin. The frontend
       # proxies /api/* server-side, so normally it does not.
       - key: ALLOWED_ORIGINS
@@ -60,6 +70,11 @@ services:
       # the proof of work in bot_guard.py carry the load there.
       - key: TRUSTED_PROXY_HOPS
         value: "2"
+      # Set to 0 to stop precomputing standings at boot. Leave it on: the
+      # first request to /api/standings otherwise costs ~300MB above idle and
+      # was OOM-killed on this plan. See cache_warm.py.
+      - key: WARM_ON_STARTUP
+        value: "1"
       # Optional — the AI race engineer degrades to a rule-based answer without
       # either of these, and the page still works.
       - key: GEMINI_API_KEY
