@@ -198,6 +198,51 @@ def warm_next_round_track(year: int | None = None) -> bool:
     return ok
 
 
+def warm_telemetry(year: int | None = None) -> bool:
+    """Warm the telemetry views the demo actually opens.
+
+    This is the one endpoint family that had no disk cache at all, so every
+    request rebuilt a whole race's car_data and position_data from fastf1.
+    Measured on the live 512MB instance: 55MB -> 325MB -> 365MB and the kernel
+    killed the process mid-parse. One telemetry click took the entire site
+    down, health check included.
+
+    It cannot be warmed exhaustively - that is every driver x round x session -
+    so this covers what the page opens by default: it is fixed to Qualifying,
+    and starts on round 1. A combination that is not warmed still costs a cold
+    fastf1 load at runtime, which is why the build is the right place to pay it.
+
+    Build machines are not held to the instance's 512MB, which is the whole
+    reason this works here and not there.
+    """
+    year = year or int(os.getenv("WARM_CACHE_YEAR", "2026"))
+    started = time.time()
+
+    from fastapi.testclient import TestClient
+    import main as app_main
+
+    # The page hardcodes Qualifying and opens on round 1; these are the drivers
+    # most likely to be picked first.
+    session = "Qualifying"
+    combos = [(1, d) for d in ("1", "12", "63", "44")]
+
+    client = TestClient(app_main.app, raise_server_exceptions=False)
+    ok = True
+    for rnd, drv in combos:
+        path = f"/api/telemetry/{year}/{rnd}/{session}/{drv}/fastest-lap"
+        try:
+            r = client.get(path, timeout=900)
+            log.info("cache warm: %s -> %s (%dB)", path, r.status_code, len(r.content))
+            if r.status_code != 200:
+                ok = False
+        except Exception as exc:
+            log.warning("cache warm: %s failed - %r", path, exc)
+            ok = False
+
+    log.info("cache warm: telemetry done in %.0fs", time.time() - started)
+    return ok
+
+
 def _warm_in_background() -> None:
     time.sleep(STARTUP_DELAY_S)
     try:
@@ -211,6 +256,10 @@ def _warm_in_background() -> None:
         warm_season_scan()
     except Exception:
         log.exception("season scan warm failed; it will compute on demand")
+    try:
+        warm_telemetry()
+    except Exception:
+        log.exception("telemetry warm failed; it will compute on demand")
     try:
         warm_next_round_track()
     except Exception:
@@ -274,6 +323,7 @@ if __name__ == "__main__":
         ("standings", warm_standings),
         ("season stats", warm_season_stats),
         ("track data", warm_next_round_track),
+        ("telemetry", warm_telemetry),
     ):
         try:
             fn()

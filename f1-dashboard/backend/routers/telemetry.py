@@ -3,7 +3,7 @@ import fastf1
 import pandas as pd
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
-from utils import cache_get, cache_set, safe_val, safe_td
+from utils import cache_get, cache_set, disk_cache_get, disk_cache_set, safe_val, safe_td
 
 router = APIRouter()
 
@@ -53,6 +53,17 @@ async def get_fastest_lap_telemetry(year: int, round_num: int, session_type: str
     if cached:
         return cached
 
+    # A finished session's telemetry is immutable, so this belongs on disk, not
+    # only in a 1h memory cache. Without it every restart - and the free plan
+    # restarts often - reloads car_data and position_data for the whole race
+    # from fastf1. That load does not fit in 512MB: measured on the live
+    # instance it went 55MB -> 325MB -> 365MB and the kernel took the process
+    # with it, so ONE telemetry click killed the entire site.
+    persisted = disk_cache_get(ck)
+    if persisted is not None:
+        cache_set(ck, persisted)
+        return persisted
+
     def _fetch():
         s = _load_session(year, round_num, session_type)
         laps = s.laps.pick_drivers(driver)
@@ -79,6 +90,7 @@ async def get_fastest_lap_telemetry(year: int, round_num: int, session_type: str
 
     result = await asyncio.to_thread(_fetch)
     cache_set(ck, result)
+    disk_cache_set(ck, result)
     return result
 
 
@@ -88,6 +100,17 @@ async def get_lap_telemetry(year: int, round_num: int, session_type: str, driver
     cached = cache_get(ck)
     if cached:
         return cached
+
+    # A finished session's telemetry is immutable, so this belongs on disk, not
+    # only in a 1h memory cache. Without it every restart - and the free plan
+    # restarts often - reloads car_data and position_data for the whole race
+    # from fastf1. That load does not fit in 512MB: measured on the live
+    # instance it went 55MB -> 325MB -> 365MB and the kernel took the process
+    # with it, so ONE telemetry click killed the entire site.
+    persisted = disk_cache_get(ck)
+    if persisted is not None:
+        cache_set(ck, persisted)
+        return persisted
 
     def _fetch():
         s = _load_session(year, round_num, session_type)
@@ -113,6 +136,7 @@ async def get_lap_telemetry(year: int, round_num: int, session_type: str, driver
 
     result = await asyncio.to_thread(_fetch)
     cache_set(ck, result)
+    disk_cache_set(ck, result)
     return result
 
 
@@ -128,6 +152,17 @@ async def compare_drivers(
     cached = cache_get(ck)
     if cached:
         return cached
+
+    # A finished session's telemetry is immutable, so this belongs on disk, not
+    # only in a 1h memory cache. Without it every restart - and the free plan
+    # restarts often - reloads car_data and position_data for the whole race
+    # from fastf1. That load does not fit in 512MB: measured on the live
+    # instance it went 55MB -> 325MB -> 365MB and the kernel took the process
+    # with it, so ONE telemetry click killed the entire site.
+    persisted = disk_cache_get(ck)
+    if persisted is not None:
+        cache_set(ck, persisted)
+        return persisted
 
     def _fetch():
         s = _load_session(year, round_num, session_type)
@@ -171,4 +206,5 @@ async def compare_drivers(
 
     result = await asyncio.to_thread(_fetch)
     cache_set(ck, result)
+    disk_cache_set(ck, result)
     return result
