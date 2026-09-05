@@ -85,8 +85,8 @@ export async function fetcher<T>(path: string): Promise<T> {
  * Application errors are still not retried — a 404 is an answer, and hammering
  * it sixty times changes nothing.
  */
-const WAKE_RETRY_MS = 5_000
-const WAKE_RETRY_LIMIT = 60  // ~5min, covering a sequential frontend+backend wake
+const WAKE_RETRY_MS = 10_000
+const WAKE_RETRY_LIMIT = 30  // ~5min ceiling; the probe below is what normally recovers
 
 const retryWhileUnreachable: SWRConfiguration['onErrorRetry'] = (
   err, _key, _config, revalidate, { retryCount },
@@ -162,6 +162,59 @@ function setBackendStatus(next: BackendStatus) {
   if (next === backendStatus) return
   backendStatus = next
   healthSubs.forEach(fn => fn())
+  if (next !== 'online') startWakeProbe()
+}
+
+/* ---------------------------------------------------------------------------
+   One probe, not a stampede.
+
+   Every panel on a page has its own SWR key, so leaving each one to retry its
+   way back means four-plus endpoints independently hammering a backend that is
+   still booting — and each only discovers the backend is up on its own next
+   tick, so panels trickle in out of order.
+
+   Measured on the live service: a cold backend answers in ~62s (34s of Render
+   scheduling the container, 26s importing fastf1/pandas, then serving). So the
+   cheap, correct thing is to ask ONE endpoint whether it is back yet, and the
+   moment it is, revalidate every key at once. /api/health is a plain JSON
+   handler that touches no data, which is why it is the probe.
+
+   Bounded on purpose: it stops as soon as the backend answers, and gives up
+   after WAKE_POLL_LIMIT rather than polling a dead backend forever.
+   --------------------------------------------------------------------------- */
+
+const WAKE_POLL_MS = 5_000
+const WAKE_POLL_LIMIT = 96  // 8 minutes, far past the ~62s a real wake takes
+
+let wakeTimer: ReturnType<typeof setTimeout> | null = null
+let wakeAttempts = 0
+
+function startWakeProbe() {
+  // No probing during SSR, and never two probes at once.
+  if (wakeTimer !== null || typeof window === 'undefined') return
+  wakeAttempts = 0
+
+  const tick = async () => {
+    wakeTimer = null
+    if (backendStatus === 'online') return
+    if (++wakeAttempts > WAKE_POLL_LIMIT) return
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/health`, { cache: 'no-store' })
+      if (res.ok) {
+        setBackendStatus('online')
+        // Hydrate every panel together rather than waiting for each key's own
+        // retry timer to come round.
+        void revalidateAll()
+        return
+      }
+    } catch {
+      // Still unreachable; fall through and schedule the next attempt.
+    }
+    wakeTimer = setTimeout(tick, WAKE_POLL_MS)
+  }
+
+  wakeTimer = setTimeout(tick, WAKE_POLL_MS)
 }
 
 function subscribeHealth(onChange: () => void): () => void {
