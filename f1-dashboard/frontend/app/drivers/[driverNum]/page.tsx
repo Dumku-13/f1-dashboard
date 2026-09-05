@@ -90,7 +90,9 @@ export default function DriverProfilePage() {
 
   const winsSeason = seasonResults.filter(r => r.finish_position === 1).length
   const podiumsSeason = seasonResults.filter(r => r.finish_position !== null && r.finish_position <= 3).length
-  const pointsSeason = seasonResults.reduce((sum, r) => sum + (r.points || 0), 0)
+  // Race points only - the season table has no sprint rows. Kept as the
+  // fallback, but it is NOT the championship total.
+  const racePointsSeason = seasonResults.reduce((sum, r) => sum + (r.points || 0), 0)
   const fastestLapsSeason = seasonResults.filter(r => r.fastest_lap).length
   // A DNF is the complement of a classified finish. Spelling out the
   // retirement cases missed "Lapped", which counted most of the field's
@@ -107,6 +109,12 @@ export default function DriverProfilePage() {
    */
   const { data: standings } = useStandings(season)
   const standing = standings?.drivers?.find(d => d.abbreviation === info?.abbreviation) ?? null
+  // The headline sits under "championship", so it has to BE the championship
+  // total - which includes sprint points. Summing the race table dropped them
+  // and showed the leader on 216 while /standings showed 242 on the same
+  // screen. Standings is the one place that scores sprints, so it wins; the
+  // race-only sum stands in only until it arrives.
+  const pointsSeason = standing?.points ?? racePointsSeason
 
   if (loading) {
     return (
