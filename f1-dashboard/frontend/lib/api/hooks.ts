@@ -75,7 +75,13 @@ export function useNextRound(year?: number) {
   const { data: calendar, isLoading } = useCalendar(year)
   const now = Date.now()
   const next = calendar.find(ev => weekendEndsAt(ev) > now) || null
-  return { event: next, isLoading }
+  // `isLoading` is not enough to decide whether "no next round" is true: SWR
+  // reports it false while it retries after an error, so a caller that trusts
+  // it will state "season complete" on the strength of a failed request. An
+  // empty calendar means we do not KNOW, and the difference is user-visible -
+  // the landing page headline is either the next Grand Prix or a claim that
+  // the season is over.
+  return { event: next, isLoading, known: calendar.length > 0 }
 }
 
 /**

@@ -92,7 +92,7 @@ function splitCountdown(ms: number | null) {
 }
 
 export default function HeroPrototypePage() {
-  const { event } = useNextRound(SEASON)
+  const { event, known: calendarKnown } = useNextRound(SEASON)
   const { data: circuits } = useCircuits()
   const { data: standings } = useStandings(SEASON)
   const [ground, setGround] = useState<'ink' | 'bone'>('ink')
@@ -135,12 +135,16 @@ export default function HeroPrototypePage() {
             <p className="hp-kicker hp-rise" style={{ '--d': '80ms' } as React.CSSProperties}>
               <span>{SEASON}</span>
               <span className="hp-rule" aria-hidden="true" />
-              <span>{event ? `Round ${event.round}` : 'Season complete'}</span>
+              <span>{event ? `Round ${event.round}` : calendarKnown ? 'Season complete' : 'Loading'}</span>
               {event?.is_sprint && <span className="hp-sprint">Sprint</span>}
             </p>
 
             <h1 id="hp-title" className="hp-d1 hp-rise" style={{ '--d': '160ms' } as React.CSSProperties}>
-              {event?.name ?? 'No further rounds'}
+              {/* Only claim the season is over once the calendar actually
+                  arrived - see `known` in useNextRound. Saying "No further
+                  rounds" over a request that simply hasn't landed yet is the
+                  page confidently reporting the wrong thing. */}
+              {event?.name ?? (calendarKnown ? 'No further rounds' : 'Loading the season…')}
             </h1>
 
             <p className="hp-circuit hp-rise" style={{ '--d': '300ms' } as React.CSSProperties}>

@@ -17,12 +17,26 @@ import { BACKEND_URL } from '@/lib/constants'
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /**
+   * True when nothing ever handled the request — a transport failure, or a
+   * proxy answering for a backend that isn't up yet. Distinct from a 404 or a
+   * 500, which mean the app itself replied. Only these are worth retrying.
+   */
+  unreachable: boolean
+  constructor(status: number, message: string, unreachable = false) {
     super(message)
     this.status = status
+    this.unreachable = unreachable
     this.name = 'ApiError'
   }
 }
+
+/**
+ * Statuses that mean "nothing is listening yet" rather than "the app said no".
+ * A sleeping Render instance does not refuse the connection — its edge accepts
+ * it and answers 502 while the container boots.
+ */
+const GATEWAY_STATUSES = new Set([502, 503, 504])
 
 /** `path` is backend-relative ('/api/standings/'). BACKEND_URL is '' on a public host. */
 export async function fetcher<T>(path: string): Promise<T> {
@@ -30,16 +44,47 @@ export async function fetcher<T>(path: string): Promise<T> {
   try {
     res = await fetch(`${BACKEND_URL}${path}`)
   } catch (err) {
-    // fetch only throws for transport failures — the backend isn't listening.
-    // A 4xx/5xx means it answered and is handled below.
-    setBackendOnline(false)
-    throw new ApiError(0, 'Cannot reach the backend')
+    // fetch only throws for transport failures — nothing is listening at all.
+    // That is the local-dev shape: the uvicorn process isn't running.
+    setBackendStatus('down')
+    throw new ApiError(0, 'Cannot reach the backend', true)
   }
-  setBackendOnline(true)
+  // The hosted shape is different and used to be invisible here. A free
+  // instance that has spun down still ACCEPTS the connection — Render's edge
+  // answers 502/503 for the ~50s the container takes to wake — so the catch
+  // above never runs. Reporting that as healthy is what left every page
+  // rendering an empty shell with no banner and no retry.
+  if (GATEWAY_STATUSES.has(res.status)) {
+    setBackendStatus('waking')
+    throw new ApiError(res.status, 'Backend is waking up', true)
+  }
+  setBackendStatus('online')
   if (!res.ok) {
     throw new ApiError(res.status, `Request failed (${res.status})`)
   }
   return res.json() as Promise<T>
+}
+
+/**
+ * Keep retrying while the backend is merely absent, and only then.
+ *
+ * A Render free instance takes ~50s to wake, so the window to survive is
+ * tens of seconds, not milliseconds. `shouldRetryOnError: false` used to make
+ * a single cold-start 502 permanent: the request failed once, SWR gave up,
+ * and the page stayed empty until the visitor reloaded by hand.
+ *
+ * Application errors are still not retried — a 404 is an answer, and hammering
+ * it twenty times changes nothing.
+ */
+const WAKE_RETRY_MS = 4_000
+const WAKE_RETRY_LIMIT = 20  // ~80s, comfortably past a cold start
+
+const retryWhileUnreachable: SWRConfiguration['onErrorRetry'] = (
+  err, _key, _config, revalidate, { retryCount },
+) => {
+  if (!(err instanceof ApiError) || !err.unreachable) return
+  if (retryCount > WAKE_RETRY_LIMIT) return
+  setTimeout(() => revalidate({ retryCount }), WAKE_RETRY_MS)
 }
 
 /** Season/historical data — changes at most once per race weekend. */
@@ -49,7 +94,8 @@ export function useApi<T>(path: string | null, opts?: SWRConfiguration<T>) {
     revalidateOnFocus: false,
     revalidateIfStale: false,
     keepPreviousData: true,
-    shouldRetryOnError: false,
+    shouldRetryOnError: true,
+    onErrorRetry: retryWhileUnreachable,
     ...opts,
   })
 }
@@ -84,16 +130,28 @@ export function useApiList<T>(path: string | null, opts?: SWRConfiguration<T[]>)
    `fetcher` is the single choke point for all reads, so reachability is
    tracked here and surfaced once, globally.
 
-   Only *connection* failures count. A 404 or a 500 means the backend answered,
-   which is a different problem and must not raise this banner.
+   Only failures where nothing HANDLED the request count. A 404 or a 500 means
+   the backend answered, which is a different problem and must not raise this
+   banner.
+
+   Two shapes, and they need different words in front of a visitor:
+
+     'down'    the connection was refused. Locally that means uvicorn isn't
+               running, and the banner can say exactly how to start it.
+     'waking'  a proxy answered 502/503 for a backend that is booting. On
+               Render's free plan this is routine — the instance sleeps after
+               ~15 minutes idle and takes ~50s to come back — and telling a
+               visitor to run uvicorn would be nonsense.
    --------------------------------------------------------------------------- */
 
-let backendOnline = true
+export type BackendStatus = 'online' | 'waking' | 'down'
+
+let backendStatus: BackendStatus = 'online'
 const healthSubs = new Set<() => void>()
 
-function setBackendOnline(next: boolean) {
-  if (next === backendOnline) return
-  backendOnline = next
+function setBackendStatus(next: BackendStatus) {
+  if (next === backendStatus) return
+  backendStatus = next
   healthSubs.forEach(fn => fn())
 }
 
@@ -102,12 +160,17 @@ function subscribeHealth(onChange: () => void): () => void {
   return () => { healthSubs.delete(onChange) }
 }
 
-const getHealth = () => backendOnline
-const getServerHealth = () => true  // assume reachable during SSR
+const getHealth = () => backendStatus
+const getServerHealth = (): BackendStatus => 'online'  // assume reachable during SSR
 
-/** False when the API can't be reached at all (process down, wrong port). */
-export function useBackendOnline(): boolean {
+/** 'online', or why the API can't be reached. */
+export function useBackendStatus(): BackendStatus {
   return useSyncExternalStore(subscribeHealth, getHealth, getServerHealth)
+}
+
+/** False when the API can't be reached at all (process down, or still waking). */
+export function useBackendOnline(): boolean {
+  return useBackendStatus() === 'online'
 }
 
 /** Re-run every SWR key. Used by the banner's retry button. */
