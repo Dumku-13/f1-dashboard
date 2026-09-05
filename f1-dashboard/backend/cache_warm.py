@@ -106,12 +106,68 @@ def warm_season_stats(year: int | None = None) -> bool:
     return True
 
 
+def warm_next_round_track(year: int | None = None) -> bool:
+    """Warm the circuit geometry and track DNA for the round the site features.
+
+    These are the "track doesn't load" endpoints. Both are expensive - the
+    geometry alone is a ~70s fastf1 load - and both disk-cache their answer, so
+    like standings they are fine once warm and fatal on a 512MB instance when
+    cold. They were only ever passing in production because an instance that
+    had been up a while had cached them from real traffic; every redeploy wiped
+    that and the next visitor got a 500.
+
+    Warmed through the app's own HTTP layer rather than by calling internals:
+    these handlers own several caches between them (outline, details, DNA) and
+    going through the route is what guarantees we populate exactly the ones a
+    real request reads. TestClient is used WITHOUT its context manager on
+    purpose - entering it would run the lifespan and start a second warm.
+    """
+    year = year or int(os.getenv("WARM_CACHE_YEAR", "2026"))
+    started = time.time()
+
+    from fastapi.testclient import TestClient
+    from routers.standings import _completed_round_count
+    import main as app_main
+
+    done = _completed_round_count(year)
+    if done < 0:
+        log.warning("cache warm: skipping track warm, no schedule for %s", year)
+        return False
+    # The landing page features the next round; a completed count of 12 means
+    # round 13 is what needs to be drawable.
+    rnd = done + 1
+
+    client = TestClient(app_main.app, raise_server_exceptions=False)
+    paths = [
+        f"/api/livetiming/track/{year}/{rnd}/details",
+        f"/api/analysis/track-dna/{year}/{rnd}?session_code=Q",
+    ]
+
+    ok = True
+    for path in paths:
+        try:
+            r = client.get(path, timeout=600)
+            log.info("cache warm: %s -> %s (%dB)", path, r.status_code, len(r.content))
+            if r.status_code != 200:
+                ok = False
+        except Exception as exc:
+            log.warning("cache warm: %s failed - %r", path, exc)
+            ok = False
+
+    log.info("cache warm: round %s track data done in %.0fs", rnd, time.time() - started)
+    return ok
+
+
 def _warm_in_background() -> None:
     time.sleep(STARTUP_DELAY_S)
     try:
         warm_standings()
     except Exception:
         log.exception("standings warm failed; it will compute on demand")
+    try:
+        warm_next_round_track()
+    except Exception:
+        log.exception("track warm failed; it will compute on demand")
     try:
         warm_season_stats()
     except Exception:
@@ -167,7 +223,11 @@ if __name__ == "__main__":
         import main  # noqa: F401
     except Exception as exc:
         print(f"[cache-warm] could not import the app, continuing uncached - {exc!r}")
-    for name, fn in (("standings", warm_standings), ("season stats", warm_season_stats)):
+    for name, fn in (
+        ("standings", warm_standings),
+        ("season stats", warm_season_stats),
+        ("track data", warm_next_round_track),
+    ):
         try:
             fn()
         except Exception as exc:
