@@ -238,8 +238,8 @@ export default function HeroPrototypePage() {
             </div>
 
             <p className="hp-note">
-              The hero is black as the spec requires. This strip is the decision: whether the
-              editorial surfaces underneath it go cream or stay dark.
+              The hero stays black. Use the switch above to read the editorial sections on
+              cream instead.
             </p>
           </div>
         </section>

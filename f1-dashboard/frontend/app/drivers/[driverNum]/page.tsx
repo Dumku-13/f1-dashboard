@@ -6,6 +6,7 @@ import { useSeason } from '@/lib/season'
 import Link from 'next/link'
 import { BACKEND_URL } from '@/lib/constants'
 import { TEAM_COLORS } from '@/lib/constants'
+import { isClassifiedFinish } from '@/lib/utils'
 import { getDriverTheme } from '@/lib/driverAssets'
 import { FlipFadeText } from '@/components/ui/flip-fade-text'
 import CountUp from '@/components/ui/CountUp'
@@ -91,7 +92,10 @@ export default function DriverProfilePage() {
   const podiumsSeason = seasonResults.filter(r => r.finish_position !== null && r.finish_position <= 3).length
   const pointsSeason = seasonResults.reduce((sum, r) => sum + (r.points || 0), 0)
   const fastestLapsSeason = seasonResults.filter(r => r.fastest_lap).length
-  const dnfsSeason = seasonResults.filter(r => r.status && !r.status.startsWith('+') && r.status !== 'Finished' && r.status !== 'Retired normally').length
+  // A DNF is the complement of a classified finish. Spelling out the
+  // retirement cases missed "Lapped", which counted most of the field's
+  // lapped-but-classified runners as retirements.
+  const dnfsSeason = seasonResults.filter(r => r.status && !isClassifiedFinish(r.status)).length
 
   const theme = getDriverTheme(info?.full_name)
   const accent = theme?.accent || TEAM_COLORS[info?.team || ''] || '#E10600'

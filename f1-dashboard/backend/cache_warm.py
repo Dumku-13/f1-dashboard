@@ -106,6 +106,46 @@ def warm_season_stats(year: int | None = None) -> bool:
     return True
 
 
+def warm_season_scan(year: int | None = None) -> bool:
+    """Warm `analysis._scan_season` — the whole grid's classifications.
+
+    This is the structure every per-driver view reduces over: /analysis's
+    driver, h2h, teammates and consistency routes, and (since it stopped
+    re-walking the schedule itself) /api/drivers/{n}/season/{year}.
+
+    Cold it is the most expensive thing here — measured at ~350s on the free
+    instance, against ~30s locally, because the CPU is throttled. That cost
+    landed on whoever opened a driver page first, and the frontend proxy gives
+    up at 30s, so the page 500'd and then worked on a reload. Warming it makes
+    all 22 driver pages and the analysis tab cheap at once.
+
+    Warmed through a route rather than by calling `_season()` directly, for the
+    same reason as the track warm: the route owns the cache key and the
+    single-flight lock, so going through it populates exactly what a real
+    request reads. /teammates is the cheapest route that builds it — it takes
+    nothing but a year and is otherwise a pure reduction.
+    """
+    year = year or int(os.getenv("WARM_CACHE_YEAR", "2026"))
+    started = time.time()
+
+    from fastapi.testclient import TestClient
+    import main as app_main
+
+    client = TestClient(app_main.app, raise_server_exceptions=False)
+    path = f"/api/analysis/teammates/{year}"
+    try:
+        r = client.get(path, timeout=900)
+    except Exception as exc:
+        log.warning("cache warm: %s failed - %r", path, exc)
+        return False
+
+    log.info(
+        "cache warm: %s -> %s in %.0fs (%dB)",
+        path, r.status_code, time.time() - started, len(r.content),
+    )
+    return r.status_code == 200
+
+
 def warm_next_round_track(year: int | None = None) -> bool:
     """Warm the circuit geometry and track DNA for the round the site features.
 
@@ -164,6 +204,13 @@ def _warm_in_background() -> None:
         warm_standings()
     except Exception:
         log.exception("standings warm failed; it will compute on demand")
+    try:
+        # After standings, deliberately: standings writes every
+        # fastest_lap_driver disk entry for the season, which the driver-season
+        # reduction then reads for free instead of loading 12 rounds of laps.
+        warm_season_scan()
+    except Exception:
+        log.exception("season scan warm failed; it will compute on demand")
     try:
         warm_next_round_track()
     except Exception:

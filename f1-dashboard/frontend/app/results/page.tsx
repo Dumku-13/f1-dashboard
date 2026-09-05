@@ -17,6 +17,7 @@ import { useCalendar, useLatestCompletedRound } from '@/lib/api/hooks'
 import { useSeason } from '@/lib/season'
 import { formatLapTime } from '@/lib/ist'
 import { TEAM_COLORS } from '@/lib/constants'
+import { isClassifiedFinish } from '@/lib/utils'
 import type { SessionResult, CalendarEvent } from '@/lib/types'
 import RoundFlag from '@/components/shared/RoundFlag'
 
@@ -76,7 +77,8 @@ function SeasonResults({ year }: { year: number }) {
 
   const winner = results[0]
   const fastest = results.find(r => r.fastest_lap)
-  const finishers = results.filter(r => r.status === 'Finished').length
+  // Lapped runners are classified finishers too — see isClassifiedFinish.
+  const finishers = results.filter(r => isClassifiedFinish(r.status)).length
   const isRaceLike = session === 'Race' || session === 'Sprint'
 
   return (

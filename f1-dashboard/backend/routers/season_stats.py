@@ -30,6 +30,7 @@ def _compute_season_stats(year: int) -> dict:
     pit_stop_times: list = []
     fastest_lap_time = None
     fastest_lap_driver = ""
+    fastest_lap_team = ""
     fastest_lap_circuit = ""
     fastest_lap_round = None
     longest_stint_laps = 0
@@ -87,6 +88,11 @@ def _compute_season_stats(year: int) -> dict:
                         fastest_lap_time = fl
                         fl_row = laps.loc[valid.idxmin()]
                         fastest_lap_driver = str(fl_row.get("Driver", ""))
+                        # The lap row carries the team; this used to be
+                        # emitted as a hardcoded "" and the page rendered
+                        # the empty string straight into its caption as
+                        # "Set by ANT () at Spielberg".
+                        fastest_lap_team = str(fl_row.get("Team", "") or "")
                         fastest_lap_circuit = circuit
                         fastest_lap_round = round_num
 
@@ -122,7 +128,7 @@ def _compute_season_stats(year: int) -> dict:
         "fastest_lap": {
             "time": fl_time_s,
             "driver": fastest_lap_driver,
-            "team": "",
+            "team": fastest_lap_team,
             "circuit": fastest_lap_circuit,
             "round": fastest_lap_round,
         } if fl_time_s else None,

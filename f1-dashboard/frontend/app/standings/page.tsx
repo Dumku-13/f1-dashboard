@@ -47,10 +47,12 @@ function HeaderStat({ label, value, sub, accent }: { label: string; value: React
 }
 
 /* ================== Points Projector (hypothetical finish order) ================== */
-function PointsProjector({ drivers }: { drivers: DriverStanding[] }) {
+function PointsProjector({ drivers, year }: { drivers: DriverStanding[]; year: number }) {
   const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
   const [assignments, setAssignments] = useState<Record<number, string>>({})
   const [fastestLap, setFastestLap] = useState('')
+  // Mirrors FASTEST_LAP_POINT_LAST_YEAR in backend/routers/standings.py.
+  const awardsFastestLapPoint = year <= 2024
 
   const projected: Record<string, number> = {}
   drivers.forEach(d => { projected[d.abbreviation] = d.points })
@@ -59,7 +61,10 @@ function PointsProjector({ drivers }: { drivers: DriverStanding[] }) {
       projected[drv] += POINTS[parseInt(pos) - 1] || 0
     }
   })
-  if (fastestLap && projected[fastestLap] !== undefined) projected[fastestLap] += 1
+  // The fastest-lap point was abolished for 2025 onwards. standings.py gates
+  // the real calculation on FASTEST_LAP_POINT_LAST_YEAR = 2024; projecting a
+  // point the season does not award contradicted the table beside it.
+  if (awardsFastestLapPoint && fastestLap && projected[fastestLap] !== undefined) projected[fastestLap] += 1
 
   const sorted = [...drivers].sort((a, b) => (projected[b.abbreviation] || 0) - (projected[a.abbreviation] || 0))
   const selectStyle: React.CSSProperties = { flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--foreground)', padding: '5px 8px', borderRadius: 2, fontSize: 12 }
@@ -86,13 +91,15 @@ function PointsProjector({ drivers }: { drivers: DriverStanding[] }) {
         ))}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <span style={{ fontSize: 11, color: 'var(--sector-purple)', flexShrink: 0 }}>Fastest Lap (+1)</span>
-        <select aria-label="Fastest lap driver" value={fastestLap} onChange={e => setFastestLap(e.target.value)} style={{ ...selectStyle, flex: 'none', minWidth: 100 }}>
-          <option value="">—</option>
-          {drivers.map(d => <option key={d.abbreviation} value={d.abbreviation}>{d.abbreviation}</option>)}
-        </select>
-      </div>
+      {awardsFastestLapPoint && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <span style={{ fontSize: 11, color: 'var(--sector-purple)', flexShrink: 0 }}>Fastest Lap (+1)</span>
+          <select aria-label="Fastest lap driver" value={fastestLap} onChange={e => setFastestLap(e.target.value)} style={{ ...selectStyle, flex: 'none', minWidth: 100 }}>
+            <option value="">—</option>
+            {drivers.map(d => <option key={d.abbreviation} value={d.abbreviation}>{d.abbreviation}</option>)}
+          </select>
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto' }}>
         <table className="f1-table">
@@ -256,7 +263,7 @@ function SeasonStandings({ year }: { year: number }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {showProjector && standings && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-              <PointsProjector drivers={standings.drivers} />
+              <PointsProjector drivers={standings.drivers} year={year} />
             </motion.div>
           )}
 

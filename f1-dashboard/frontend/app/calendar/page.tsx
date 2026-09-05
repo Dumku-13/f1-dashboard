@@ -238,7 +238,12 @@ function SeasonCalendar({ year }: { year: number }) {
   const past = calendar.filter(ev => new Date(ev.event_date).getTime() <= now).length
   const sprints = calendar.filter(ev => ev.is_sprint).length
   const nextEvent = [...upcoming].sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime())[0]
-  const daysToNext = nextEvent ? countdownTo(nextEvent.event_date).days : null
+  // Count to lights out, not to `event_date`. That field is the race day at
+  // midnight UTC while the race itself is hours later (round 13: 00:00Z vs
+  // 13:00Z), so counting to it lost most of a day — on the Saturday of a
+  // Sunday race this tile read "0" directly above the race's own date.
+  const nextRaceStart = nextEvent?.sessions?.Race || nextEvent?.event_date
+  const daysToNext = nextRaceStart ? countdownTo(nextRaceStart).days : null
 
   const filters: { key: typeof filter; label: string }[] = [
     { key: 'all', label: `All (${calendar.length})` },

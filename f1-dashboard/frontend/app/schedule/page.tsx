@@ -34,6 +34,27 @@ function statusOf(ev: CalendarEvent): 'COMPLETED' | 'UPCOMING' {
   return new Date(ev.event_date).getTime() < Date.now() ? 'COMPLETED' : 'UPCOMING'
 }
 
+/**
+ * Is the weekend running right now — first session started, race not yet run?
+ *
+ * Display only, deliberately kept out of `statusOf`. That function drives both
+ * the completed count and which round the rail lands on, and a round that has
+ * started but not been raced is still genuinely UPCOMING for both. Widening it
+ * to a third case would have skipped the live round and selected the next one.
+ *
+ * Without this the schedule labelled the current weekend UPCOMING while /live
+ * was showing a session from it that had already ended.
+ */
+function isUnderway(ev: CalendarEvent): boolean {
+  if (statusOf(ev) === 'COMPLETED') return false
+  const starts = Object.values(ev.sessions || {})
+    .filter(Boolean)
+    .map(d => new Date(d as string).getTime())
+    .filter(t => !Number.isNaN(t))
+  if (!starts.length) return false
+  return Date.now() >= Math.min(...starts)
+}
+
 /** "21 - 23 Aug." from the weekend's first and last session. */
 function weekendRange(ev: CalendarEvent): string {
   const times = Object.values(ev.sessions || {})
@@ -59,6 +80,7 @@ function RaceCard({
   onSelect: () => void
 }) {
   const status = statusOf(ev)
+  const underway = isUnderway(ev)
   return (
     <button
       onClick={onSelect}
@@ -88,10 +110,10 @@ function RaceCard({
           )}
           <span className="font-display" style={{
             fontSize: 8, fontWeight: 700, letterSpacing: '0.08em',
-            color: status === 'COMPLETED' ? 'var(--muted)' : 'var(--sector-green)',
-            background: status === 'COMPLETED' ? 'var(--surface)' : 'rgba(0,209,49,0.12)',
+            color: status === 'COMPLETED' ? 'var(--muted)' : underway ? 'var(--amber)' : 'var(--sector-green)',
+            background: status === 'COMPLETED' ? 'var(--surface)' : underway ? 'rgba(255,193,7,0.14)' : 'rgba(0,209,49,0.12)',
             border: '1px solid var(--border)', padding: '2px 5px', borderRadius: 2,
-          }}>{status}</span>
+          }}>{underway ? 'THIS WEEKEND' : status}</span>
         </div>
         <div className="font-display" style={{
           fontSize: 17, fontWeight: 800, lineHeight: 1.15, marginBottom: 4,

@@ -24,6 +24,7 @@ import MiniSectors from '@/components/live/MiniSectors'
 import StintBar from '@/components/live/StintBar'
 import BattleView from '@/components/live/BattleView'
 import { battleNeighbours } from '@/lib/battle'
+import { nextSession, weekendEndsAt } from '@/lib/weekend'
 import DriverStory from '@/components/live/DriverStory'
 import TrackMap from '@/components/live/TrackMap'
 import TeamRadioPanel from '@/components/live/TeamRadioPanel'
@@ -141,11 +142,31 @@ export default function FollowPage() {
   )
 
   const sessionLeft = useCountdown(session?.date_end)
+  // Both of these used to key off `event_date`, and lib/weekend.ts exists
+  // because that is wrong at both ends of a weekend:
+  //   * as the "is this round still ahead" test it treats a round as past from
+  //     midnight on race day, skipping to the next round hours before lights
+  //     out — `weekendEndsAt` uses the last session instead;
+  //   * as a countdown target it counts to midnight UTC on the Sunday, so this
+  //     tile read "13:51:24" while Practice 3 was 21 minutes away.
   const nextEvent = useMemo(() => {
     const now = Date.now()
-    return calendar.find(ev => new Date(ev.event_date).getTime() > now) || null
+    return calendar.find(ev => weekendEndsAt(ev) > now) || null
   }, [calendar])
-  const untilNext = useCountdown(nextEvent?.event_date)
+  const [clockNow, setClockNow] = useState<number | null>(null)
+  useEffect(() => {
+    // Seeded null and ticked in an effect for the same reason useCountdown is:
+    // reading the clock during render is a hydration mismatch.
+    const tick = () => setClockNow(Date.now())
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [])
+  const upcomingSession = useMemo(
+    () => (clockNow == null ? null : nextSession(nextEvent, clockNow)),
+    [nextEvent, clockNow],
+  )
+  const untilNext = useCountdown(upcomingSession?.iso ?? nextEvent?.event_date)
 
   // The live feed has no round number, so match this weekend out of the
   // calendar the same way the benchmarks panel does.
@@ -215,7 +236,7 @@ export default function FollowPage() {
           accent={status === 'live' ? 'var(--sector-green)' : undefined}
           delay={0.1}
         />
-        <Stat label="Next session" value={nextEvent?.name ? fmtDuration(untilNext) : '—'} delay={0.18} />
+        <Stat label={upcomingSession ? `Next — ${upcomingSession.name}` : 'Next session'} value={nextEvent?.name ? fmtDuration(untilNext) : '—'} delay={0.18} />
         <Stat label="Track" value={trackStatus ? trackStatus.toUpperCase() : '—'} delay={0.26} />
         <Stat label="Cars" value={rows.length ? String(rows.length) : '—'} delay={0.34} />
       </div>

@@ -144,7 +144,10 @@ function SeasonStatsView({ year }: { year: number }) {
                   <RecordPanel
                     icon={<Gauge size={14} />} title="Fastest Lap of Season" accent="var(--sector-purple)"
                     value={formatLapTime(stats.fastest_lap.time)} valueColor="var(--sector-purple)"
-                    context={`Set by ${stats.fastest_lap.driver} (${stats.fastest_lap.team}) at ${stats.fastest_lap.circuit}, round ${stats.fastest_lap.round} — the single quickest lap posted anywhere in ${year}${year === SEASON ? ', under the 2026 AoA-enabled aero rules' : ''}.`}
+                    // The team is blank on payloads cached before it was
+                    // populated backend-side; without this guard the caption
+                    // read "Set by ANT () at Spielberg".
+                    context={`Set by ${stats.fastest_lap.driver}${stats.fastest_lap.team ? ` (${stats.fastest_lap.team})` : ''} at ${stats.fastest_lap.circuit}, round ${stats.fastest_lap.round} — the single quickest lap posted anywhere in ${year}${year === SEASON ? ', under the 2026 AoA-enabled aero rules' : ''}.`}
                     featured delay={0.05}
                   />
                 )}

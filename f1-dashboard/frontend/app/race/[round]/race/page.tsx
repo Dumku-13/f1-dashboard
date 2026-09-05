@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { Flag, Zap, Users, ShieldAlert, Radio, CloudSun } from 'lucide-react'
 import { formatLapTime } from '@/lib/ist'
 import { TEAM_COLORS, COMPOUND_COLORS } from '@/lib/constants'
+import { isClassifiedFinish } from '@/lib/utils'
 import { useApiList } from '@/lib/api/client'
 import type { SessionResult, Stint, RaceControlMessage, WeatherData } from '@/lib/types'
 
@@ -111,7 +112,8 @@ export default function RaceDashboard() {
 
   const winner = results[0]
   const fastestLapRow = results.find(r => r.fastest_lap)
-  const finishers = results.filter(r => r.status === 'Finished').length
+  // Lapped runners are classified finishers too — see isClassifiedFinish.
+  const finishers = results.filter(r => isClassifiedFinish(r.status)).length
   const scEvents = raceControl.filter(m => (m.flag || '').toUpperCase().includes('SC DEPLOYED')).length
 
   const tabs = [

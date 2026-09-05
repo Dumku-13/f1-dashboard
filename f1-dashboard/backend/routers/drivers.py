@@ -97,12 +97,65 @@ def _resolve_ergast_id(token: str, year: int = 2026) -> str:
     return token
 
 
+async def _jolpica_get(client: httpx.AsyncClient, url: str, attempts: int = 4):
+    """GET `url`, retrying while Jolpica is throttling us.
+
+    Jolpica rate-limits anonymous callers hard — measured at 429 with
+    `Retry-After: 4` after roughly eight career lookups in a row. Two separate
+    bugs came out of not handling that:
+
+      * the driver lookup below turned a 429 into `404 Driver not found`, so
+        clicking through a handful of drivers made the Career tab claim the
+        driver does not exist. It cleared on its own a few seconds later, which
+        is exactly what makes it look like bad data rather than throttling.
+      * `_count_races()` reads `MRData.total` and falls back to `len([])`, so a
+        throttled stats call did not fail — it quietly returned **0**, and a
+        champion rendered with 0 wins and 0 titles.
+
+    Returns the response (which may still be non-2xx — a real 404 is the
+    caller's to interpret), or None if we were throttled the whole way.
+    """
+    delay = 1.0
+    for attempt in range(attempts):
+        try:
+            r = await client.get(url)
+        except Exception:
+            r = None
+        if r is not None and r.status_code != 429 and r.status_code < 500:
+            return r
+        if attempt == attempts - 1:
+            return r if (r is not None and r.status_code != 429) else None
+        wait = delay
+        if r is not None:
+            try:
+                wait = max(wait, float(r.headers.get("Retry-After", 0)))
+            except (TypeError, ValueError):
+                pass
+        await asyncio.sleep(min(wait, 8.0))
+        delay *= 2
+    return None
+
+
 @router.get("/{driver_id}/career")
 async def get_driver_career(driver_id: str):
     ck = f"career_{driver_id}"
     cached = cache_get(ck)
     if cached:
         return cached
+
+    # Also persisted: a career costs ~25 upstream requests against a source
+    # that throttles, and the answer only moves when a race is scored. Keyed by
+    # the completed-round count so it still refreshes when one is — the same
+    # scheme standings.py uses. Without this, every restart re-ran the whole
+    # rate-limited walk for anyone who opened a driver page.
+    from routers.standings import _completed_round_count
+    done = await asyncio.to_thread(_completed_round_count, 2026)
+    disk_key = f"career_{driver_id}_r{done}" if done >= 0 else None
+    if disk_key:
+        persisted = disk_cache_get(disk_key)
+        if persisted is not None:
+            cache_set(ck, persisted)
+            return persisted
 
     # Accept either a car number or an Ergast slug.
     resolved_id = await asyncio.to_thread(_resolve_ergast_id, driver_id)
@@ -122,8 +175,15 @@ async def get_driver_career(driver_id: str):
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # Basic driver info
-            resp = await client.get(f"{ERGAST_BASE}/drivers/{resolved_id}.json")
+            # Basic driver info. `None` back means we were throttled the whole
+            # way, which is NOT the same as the driver not existing — saying
+            # 404 there is what made a live driver look deleted.
+            resp = await _jolpica_get(client, f"{ERGAST_BASE}/drivers/{resolved_id}.json")
+            if resp is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Historical data source is rate-limiting; try again shortly",
+                )
             if resp.status_code != 200:
                 raise HTTPException(status_code=404, detail="Driver not found")
             drv_data = resp.json().get("MRData", {}).get("DriverTable", {}).get("Drivers", [])
@@ -131,21 +191,27 @@ async def get_driver_career(driver_id: str):
                 raise HTTPException(status_code=404, detail="Driver not found")
             driver = drv_data[0]
 
-            # Wins / podium-positions / poles / fastest laps
-            wins_resp = await client.get(f"{ERGAST_BASE}/drivers/{resolved_id}/results/1.json?limit=200")
-            wins = _count_races(wins_resp.json())
-            p2_resp = await client.get(f"{ERGAST_BASE}/drivers/{resolved_id}/results/2.json?limit=200")
-            p3_resp = await client.get(f"{ERGAST_BASE}/drivers/{resolved_id}/results/3.json?limit=200")
-            podiums = wins + _count_races(p2_resp.json()) + _count_races(p3_resp.json())
+            # Wins / podium-positions / poles / fastest laps. Each of these
+            # goes through the retry too: a throttled response here does not
+            # raise, it just counts zero.
+            async def _count_at(path: str) -> int:
+                r = await _jolpica_get(client, f"{ERGAST_BASE}/{path}")
+                if r is None or r.status_code != 200:
+                    raise RuntimeError(f"jolpica unavailable for {path}")
+                return _count_races(r.json())
 
-            poles_resp = await client.get(f"{ERGAST_BASE}/drivers/{resolved_id}/qualifying/1.json?limit=200")
-            poles = _count_races(poles_resp.json())
+            wins = await _count_at(f"drivers/{resolved_id}/results/1.json?limit=200")
+            podiums = wins
+            podiums += await _count_at(f"drivers/{resolved_id}/results/2.json?limit=200")
+            podiums += await _count_at(f"drivers/{resolved_id}/results/3.json?limit=200")
 
-            fl_resp = await client.get(f"{ERGAST_BASE}/drivers/{resolved_id}/fastest/1/results.json?limit=200")
-            fastest_laps = _count_races(fl_resp.json())
+            poles = await _count_at(f"drivers/{resolved_id}/qualifying/1.json?limit=200")
+            fastest_laps = await _count_at(f"drivers/{resolved_id}/fastest/1/results.json?limit=200")
 
             # Seasons participated
-            seasons_resp = await client.get(f"{ERGAST_BASE}/drivers/{resolved_id}/seasons.json?limit=100")
+            seasons_resp = await _jolpica_get(client, f"{ERGAST_BASE}/drivers/{resolved_id}/seasons.json?limit=100")
+            if seasons_resp is None or seasons_resp.status_code != 200:
+                raise RuntimeError("jolpica unavailable for seasons")
             seasons_list = seasons_resp.json().get("MRData", {}).get("SeasonTable", {}).get("Seasons", [])
             seasons = len(seasons_list)
             first_season = int(seasons_list[0]["season"]) if seasons_list else None
@@ -163,8 +229,8 @@ async def get_driver_career(driver_id: str):
                 # silently costs the driver a real championship.
                 for attempt in range(3):
                     try:
-                        r = await client.get(f"{ERGAST_BASE}/{season}/driverStandings/1.json")
-                        if r.status_code == 200:
+                        r = await _jolpica_get(client, f"{ERGAST_BASE}/{season}/driverStandings/1.json")
+                        if r is not None and r.status_code == 200:
                             lists = r.json().get("MRData", {}).get("StandingsTable", {}).get("StandingsLists", [])
                             if not lists:
                                 return False
@@ -206,6 +272,8 @@ async def get_driver_career(driver_id: str):
         "career_championships": championships,
     }
     cache_set(ck, result)
+    if disk_key:
+        disk_cache_set(disk_key, result)
     return result
 
 
@@ -216,8 +284,8 @@ async def get_driver_season(driver_number: str, year: int = 2026):
     if cached:
         return cached
 
-    # This walks every round's results — ~35s cold. Fixed for a given set of
-    # finished races, so persist it keyed by that count (see standings.py).
+    # Fixed for a given set of finished races, so persist it keyed by that
+    # count (see standings.py).
     from routers.standings import _completed_round_count
     done = await asyncio.to_thread(_completed_round_count, year)
     disk_key = f"driver_season_{driver_number}_{year}_r{done}" if done >= 0 else None
@@ -227,40 +295,48 @@ async def get_driver_season(driver_number: str, year: int = 2026):
             cache_set(ck, persisted)
             return persisted
 
-    def _fetch():
-        schedule = fastf1.get_event_schedule(year, include_testing=False)
+    # Derived from the shared season scan rather than re-walking the schedule.
+    # The old version loaded one fastf1 race session per round PER DRIVER —
+    # ~30s each even against a warm local cache, and past the proxy's 30s
+    # ceiling on Render's throttled free CPU, so the driver page 500'd on
+    # first view and only worked on a reload. `_scan_season` already loads
+    # exactly these classifications once for the whole grid and caches them to
+    # disk, and its own docstring calls the per-driver views "cheap reductions
+    # of this structure" — this is one of those. 22 expensive scans collapse
+    # into a lookup over the one the /analysis routes already pay for.
+    from routers.analysis import _season
+    season = await _season(year)
+
+    def _reduce():
         results = []
-        for _, ev in schedule.iterrows():
-            round_num = int(ev["RoundNumber"])
-            event_name = str(ev.get("EventName", ""))
-            try:
-                s = fastf1.get_session(year, round_num, "R")
-                s.load(laps=False, telemetry=False, weather=False, messages=False)
-                res = s.results
-                if res is not None:
-                    drv_res = res[res["DriverNumber"].astype(str) == str(driver_number)]
-                    if len(drv_res) > 0:
-                        r = drv_res.iloc[0]
-                        pos = safe_val(r.get("Position"))
-                        grid = safe_val(r.get("GridPosition"))
-                        abbr = str(r.get("Abbreviation", "") or "")
-                        results.append({
-                            "round": round_num,
-                            "race_name": event_name,
-                            "event": event_name,
-                            "finish_position": int(pos) if pos is not None else None,
-                            "grid_position": int(grid) if grid is not None else None,
-                            "points": safe_val(r.get("Points")),
-                            # Was hardcoded False, so the driver page's
-                            # "Fastest Laps" tile was permanently 0.
-                            "fastest_lap": bool(abbr) and abbr == fastest_lap_driver(year, round_num),
-                            "status": str(r.get("Status", "")),
-                        })
-            except Exception:
-                pass
+        for rnd in season.get("rounds", []):
+            round_num = rnd.get("round")
+            row = next(
+                (r for r in rnd.get("race", [])
+                 if str(r.get("driver_number", "")) == str(driver_number)),
+                None,
+            )
+            if row is None:
+                continue
+            abbr = str(row.get("abbr", "") or "")
+            event_name = str(rnd.get("name", ""))
+            results.append({
+                "round": round_num,
+                "race_name": event_name,
+                "event": event_name,
+                "finish_position": row.get("position"),
+                "grid_position": row.get("grid"),
+                "points": row.get("points"),
+                # Was hardcoded False, so the driver page's
+                # "Fastest Laps" tile was permanently 0.
+                "fastest_lap": bool(abbr) and abbr == fastest_lap_driver(year, round_num),
+                "status": str(row.get("status", "")),
+            })
         return results
 
-    result = await asyncio.to_thread(_fetch)
+    # fastest_lap_driver() reads lap data on a disk-cache miss, so this still
+    # goes off the event loop even though the classifications are in memory.
+    result = await asyncio.to_thread(_reduce)
     cache_set(ck, result)
     if disk_key and result:
         disk_cache_set(disk_key, result)

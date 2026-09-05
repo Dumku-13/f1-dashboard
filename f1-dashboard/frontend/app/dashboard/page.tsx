@@ -294,7 +294,10 @@ export default function HomePage() {
             </div>
             <div style={{ fontSize: '12px', color: '#9CA3AF', textAlign: 'right' }}>
               <div style={{ fontWeight: 600, color: '#fff', fontSize: '14px' }}>SEASON OVERVIEW</div>
-              <div>{calendar.length || 22} Rounds · 11 Teams · 22 Drivers</div>
+              {/* No numeric fallback: the old `|| 22` printed a wrong round
+                  count for the second or so before the calendar landed, then
+                  silently corrected itself to 23. An em dash reads as loading. */}
+              <div>{calendar.length || '—'} Rounds · 11 Teams · 22 Drivers</div>
               <div style={{ marginTop: '2px' }}>Active Aero Override (AoA) Regulations</div>
             </div>
           </div>
@@ -434,7 +437,7 @@ export default function HomePage() {
             { href: '/predictor', label: 'Predictor', desc: 'Call the race', Icon: Target, hot: true },
             { href: '/games', label: 'Games', desc: 'Earn Pit Coins', Icon: Gamepad2, hot: true },
             { href: '/profile', label: 'Profile', desc: 'Badges + coins', Icon: CircleUser },
-            { href: '/calendar', label: 'Calendar', desc: '23 Rounds', Icon: CalendarDays },
+            { href: '/calendar', label: 'Calendar', desc: `${calendar.length || '—'} Rounds`, Icon: CalendarDays },
             { href: '/standings', label: 'Standings', desc: 'Full WDC + WCC', Icon: Trophy },
             { href: '/drivers', label: 'Drivers', desc: '22 on the grid', Icon: Users },
             { href: '/teams', label: 'Teams', desc: '11 Constructors', Icon: Car },
