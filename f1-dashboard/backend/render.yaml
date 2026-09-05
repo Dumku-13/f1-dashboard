@@ -27,7 +27,14 @@ services:
     # The backend is not at the repo root.
     rootDir: f1-dashboard/backend
     plan: free
-    buildCommand: pip install -r requirements.txt
+    # The warm is part of the BUILD, not the start command, and that is the
+    # whole point: Render restores the build snapshot on every wake, so this
+    # is the only place a precomputed cache survives the free plan's
+    # spin-down. Warming at runtime instead means recomputing it after every
+    # sleep, ~8 minutes each time, with /api/standings hanging throughout.
+    # cache_warm.py always exits 0, so a bad day at F1's servers cannot fail
+    # the build.
+    buildCommand: pip install -r requirements.txt && python cache_warm.py
     # Render injects $PORT; binding to a fixed 8000 makes the service
     # unreachable and the failure looks like a timeout, not a config error.
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT

@@ -121,10 +121,23 @@ def start_background_warm() -> threading.Thread | None:
 
 
 if __name__ == "__main__":
-    # Also usable as a build step: `python cache_warm.py`.
+    # Also usable as a build step: `python cache_warm.py` from the backend
+    # directory. Render snapshots the build filesystem and restores it on every
+    # wake, so warming HERE is the only way the result survives the free plan's
+    # spin-down - a warm written at runtime is lost with the instance.
     logging.basicConfig(level=logging.INFO, format="[cache-warm] %(message)s")
+    try:
+        # Importing the app is what calls fastf1.Cache.enable_cache(). Skip it
+        # and fastf1 runs cacheless: the standings JSON still lands, but the
+        # ~90MB of raw session data it just downloaded is thrown away instead
+        # of being baked into the snapshot alongside it.
+        import main  # noqa: F401
+    except Exception as exc:
+        print(f"[cache-warm] could not import the app, continuing uncached - {exc!r}")
     try:
         warm_standings()
     except Exception as exc:
         print(f"[cache-warm] SKIP - {exc!r}")
+    # Always zero: a cold cache is slow, not broken, and is never a reason to
+    # fail a build.
     raise SystemExit(0)
