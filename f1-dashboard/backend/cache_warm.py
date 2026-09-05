@@ -221,10 +221,18 @@ def warm_telemetry(year: int | None = None) -> bool:
     from fastapi.testclient import TestClient
     import main as app_main
 
-    # The page hardcodes Qualifying and opens on round 1; these are the drivers
-    # most likely to be picked first.
+    # The page hardcodes Qualifying and opens on round 1.
+    #
+    # ABBREVIATIONS, not car numbers. The driver dropdowns are populated with
+    # "VER", "ANT", ... and that string goes straight into the URL, so it is
+    # also the cache key. Warming "1" and "44" builds entries the page will
+    # never ask for - the request would miss and pay the full cold load anyway,
+    # with the warm looking like it had worked.
     session = "Qualifying"
-    combos = [(1, d) for d in ("1", "12", "63", "44")]
+    # VER is deliberately absent: he set no lap in round 1 qualifying, so that
+    # request is a legitimate 404 and warming it only costs build time.
+    drivers = ("ANT", "HAM", "NOR", "RUS", "LEC", "PIA")
+    combos = [(1, d) for d in drivers]
 
     client = TestClient(app_main.app, raise_server_exceptions=False)
     ok = True
