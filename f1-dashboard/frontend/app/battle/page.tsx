@@ -11,7 +11,7 @@ import {
 import { TEAM_COLORS } from '@/lib/constants'
 import { hexColor } from '@/lib/utils'
 import { formatLapTime } from '@/lib/ist'
-import { useApiList } from '@/lib/api/client'
+import { ApiError, useApiList } from '@/lib/api/client'
 import { useCalendar, useStandings } from '@/lib/api/hooks'
 import type { DriverStanding, LapData, SectorBest, SessionResult } from '@/lib/types'
 import { CHART_GRID as GRID } from '@/lib/chartTheme'
@@ -117,7 +117,11 @@ const idle = <T,>(): LoadState<T> => ({ status: 'idle', data: null })
 /** Adapts a useApiList result into the LoadState shape the section cards expect. */
 function toLoadState<T>(guard: boolean, isLoading: boolean, error: unknown, data: T): LoadState<T> {
   if (!guard) return idle()
-  if (isLoading) return { status: 'loading', data: null }
+  // A backend that is still waking is not a failed request: the client is
+  // retrying and the card is about to fill in. Rendering an error there tells
+  // the visitor something is broken during a routine cold start.
+  const waking = error instanceof ApiError && error.unreachable
+  if (isLoading || waking) return { status: 'loading', data: null }
   if (error) return { status: 'error', data: null }
   return { status: 'ready', data }
 }

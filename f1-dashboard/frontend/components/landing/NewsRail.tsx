@@ -12,7 +12,7 @@
  * branching.
  */
 
-import { useApi } from '@/lib/api/client'
+import { ApiError, useApi } from '@/lib/api/client'
 
 interface Article {
   title: string
@@ -41,11 +41,18 @@ export default function NewsRail({ limit = 6 }: { limit?: number }) {
   const { data, error, isLoading } = useApi<NewsResponse>(`/api/news?limit=${limit}`)
   const items = (data?.items || []).slice(0, limit)
 
-  if (error) {
+  // A backend that is still waking is not a failed feed. Reporting "couldn't
+  // reach" on the first 502 of a cold start puts an error in front of the
+  // visitor while the request is still being retried and is about to succeed;
+  // the skeleton below is the honest state for that. Only a real answer we
+  // cannot use - a 500, a malformed payload - is worth calling an error.
+  const waking = error instanceof ApiError && error.unreachable
+
+  if (error && !waking) {
     return <p className="hp-news-empty">Couldn&apos;t reach the news feed.</p>
   }
 
-  if (isLoading && !items.length) {
+  if ((isLoading || waking) && !items.length) {
     return (
       <div className="hp-news-grid">
         {Array.from({ length: limit }, (_, i) => (
