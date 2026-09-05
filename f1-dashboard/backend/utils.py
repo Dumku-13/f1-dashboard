@@ -1,5 +1,6 @@
 import json
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 import pandas as pd
@@ -34,18 +35,68 @@ def cache_set(key: str, value, ttl: float | None = CACHE_TTL):
     _cache_exp[key] = ttl
 
 
+# ---------------------------------------------------------------------------
+# The in-memory mirror of the disk cache is BOUNDED. It did not used to be.
+#
+# Every disk hit was copied into `_cache` with ttl=None, and nothing ever
+# evicted it, so a process accumulated every payload it had ever read and gave
+# none of it back. Ordinary browsing did this; warming every endpoint did it
+# fast. Observed in production on the 512MB instance: memory climbed to 535MB
+# of a 536MB limit, sat there, and the process stopped answering anything —
+# the health check included, which is why it read as "the backend is down"
+# rather than as a memory problem.
+#
+# Losing a mirror entry costs a local JSON parse — milliseconds. Losing the
+# DISK entry would cost the 30-90s fastf1 rebuild, and that is not what this
+# evicts. The disk file is the cache; this is only a shortcut past reading it.
+_DISK_MIRROR_BUDGET = 48 * 1024 * 1024  # leaves the box room to actually serve
+_disk_mirror_sizes: dict[str, int] = {}
+_disk_mirror_lru: "OrderedDict[str, None]" = OrderedDict()
+
+
+def _mirror_drop(key: str) -> None:
+    _cache.pop(key, None)
+    _cache_ttl.pop(key, None)
+    _cache_exp.pop(key, None)
+    _disk_mirror_sizes.pop(key, None)
+    _disk_mirror_lru.pop(key, None)
+
+
+def _mirror_put(key: str, value, size: int) -> None:
+    """Mirror a disk entry in memory, evicting the least recently used first."""
+    # A single payload larger than the whole budget is never worth resident
+    # memory; serve it and let the next reader parse it off disk again.
+    if size > _DISK_MIRROR_BUDGET:
+        return
+
+    _mirror_drop(key)
+    cache_set(key, value, ttl=None)
+    _disk_mirror_sizes[key] = size
+    _disk_mirror_lru[key] = None
+
+    total = sum(_disk_mirror_sizes.values())
+    while total > _DISK_MIRROR_BUDGET and len(_disk_mirror_lru) > 1:
+        oldest, _ = _disk_mirror_lru.popitem(last=False)
+        total -= _disk_mirror_sizes.get(oldest, 0)
+        _mirror_drop(oldest)
+
+
 def disk_cache_get(key: str):
     """Permanent cache for immutable data (finished-session results etc.).
     Survives restarts — memory cache alone forces a 30-90s fastf1 reload."""
-    hit = cache_get(f"disk_{key}")
+    mkey = f"disk_{key}"
+    hit = cache_get(mkey)
     if hit is not None:
+        if mkey in _disk_mirror_lru:
+            _disk_mirror_lru.move_to_end(mkey)
         return hit
     path = _DISK_CACHE_DIR / f"{key}.json"
     try:
         if path.exists():
-            value = json.loads(path.read_text(encoding="utf-8"))
-            # Never expire the in-memory mirror of an immutable disk entry.
-            cache_set(f"disk_{key}", value, ttl=None)
+            raw = path.read_text(encoding="utf-8")
+            value = json.loads(raw)
+            # The encoded length is the payload size, already in hand.
+            _mirror_put(mkey, value, len(raw.encode("utf-8")))
             return value
     except Exception:
         pass
@@ -53,12 +104,18 @@ def disk_cache_get(key: str):
 
 
 def disk_cache_set(key: str, value):
-    cache_set(f"disk_{key}", value, ttl=None)
+    try:
+        encoded = json.dumps(value)
+    except Exception:
+        encoded = None
+
+    _mirror_put(f"disk_{key}", value, len(encoded.encode("utf-8")) if encoded else 0)
+
+    if encoded is None:
+        return
     try:
         _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        (_DISK_CACHE_DIR / f"{key}.json").write_text(
-            json.dumps(value), encoding="utf-8"
-        )
+        (_DISK_CACHE_DIR / f"{key}.json").write_text(encoded, encoding="utf-8")
     except Exception:
         pass
 
