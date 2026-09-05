@@ -79,15 +79,48 @@ def warm_standings(year: int | None = None) -> bool:
     return True
 
 
+def warm_season_stats(year: int | None = None) -> bool:
+    """Same treatment for /api/season-stats.
+
+    It has the identical shape to standings - a ~30s lap-loading computation,
+    disk-cached by completed-round count - and warming only standings is why it
+    was returning 500 in production: the first visitor to /season-stats paid the
+    whole cost on a 512MB instance and the request died.
+    """
+    year = year or int(os.getenv("WARM_CACHE_YEAR", "2026"))
+    started = time.time()
+
+    from routers.season_stats import compute_and_persist
+
+    log.info("cache warm: ensuring %s season stats are cached...", year)
+    result = compute_and_persist(year)
+
+    if not result.get("rounds_complete"):
+        log.warning("cache warm: %s season stats produced no completed rounds", year)
+        return False
+
+    log.info(
+        "cache warm: %s season stats ready in %.0fs - %s rounds complete",
+        year, time.time() - started, result.get("rounds_complete"),
+    )
+    return True
+
+
 def _warm_in_background() -> None:
     time.sleep(STARTUP_DELAY_S)
     try:
         warm_standings()
     except Exception:
-        # Deliberately broad. Whatever went wrong - a network blip against F1's
-        # servers, a schema change in fastf1 - the service is still fine and
-        # the only cost is that the first standings request pays full price.
-        log.exception("cache warm failed; standings will compute on demand")
+        log.exception("standings warm failed; it will compute on demand")
+    try:
+        warm_season_stats()
+    except Exception:
+        # Deliberately broad, and separate from the standings warm above so one
+        # failing cannot skip the other. Whatever went wrong - a network blip
+        # against F1's servers, a schema change in fastf1 - the service is
+        # still fine; the cost is that this endpoint pays full price on first
+        # use, which is the situation that made it 500 in the first place.
+        log.exception("season stats warm failed; it will compute on demand")
 
 
 def _ensure_visible_logging() -> None:
@@ -134,10 +167,12 @@ if __name__ == "__main__":
         import main  # noqa: F401
     except Exception as exc:
         print(f"[cache-warm] could not import the app, continuing uncached - {exc!r}")
-    try:
-        warm_standings()
-    except Exception as exc:
-        print(f"[cache-warm] SKIP - {exc!r}")
+    for name, fn in (("standings", warm_standings), ("season stats", warm_season_stats)):
+        try:
+            fn()
+        except Exception as exc:
+            # One failing must not stop the other from warming.
+            print(f"[cache-warm] SKIP {name} - {exc!r}")
     # Always zero: a cold cache is slow, not broken, and is never a reason to
     # fail a build.
     raise SystemExit(0)

@@ -1,4 +1,6 @@
 import asyncio
+import threading
+
 import fastf1
 import pandas as pd
 from fastapi import APIRouter
@@ -149,6 +151,36 @@ def _compute_season_stats(year: int) -> dict:
 
 _stats_locks: dict[int, asyncio.Lock] = {}
 
+# Same reasoning as standings.py: the asyncio lock above only orders coroutines
+# on the event loop, and the boot/build warm runs on a plain thread. Without a
+# thread lock the two can compute this simultaneously, and lap loading is heavy
+# enough that two at once do not fit in a free instance's 512MB.
+_compute_thread_lock = threading.Lock()
+
+
+def compute_and_persist(year: int) -> dict:
+    """Season stats for `year`, computed at most once across all threads.
+
+    Blocking - call it from a worker thread. Exists so the build-time warm and
+    the request path share one implementation and one cache key; this endpoint
+    was 500ing in production precisely because only standings was warmed, so
+    the first visitor to /season-stats paid a ~30s lap-loading computation on
+    an instance that could not afford it.
+    """
+    with _compute_thread_lock:
+        from routers.standings import _completed_round_count
+        done = _completed_round_count(year)
+        disk_key = f"season_stats_{year}_r{done}" if done >= 0 else None
+        if disk_key:
+            persisted = disk_cache_get(disk_key)
+            if persisted:
+                return persisted
+
+        result = _compute_season_stats(year)
+        if disk_key and result.get("rounds_complete"):
+            disk_cache_set(disk_key, result)
+        return result
+
 
 @router.get("")  # match with and without trailing slash (proxy strips it)
 @router.get("/")
@@ -164,19 +196,6 @@ async def get_season_stats(year: int = 2026):
         if cached:
             return cached
 
-        # ~30s of fastf1 lap loading. The answer is fixed for a given set of
-        # finished races, so persist it keyed by that count (see standings.py).
-        from routers.standings import _completed_round_count
-        done = await asyncio.to_thread(_completed_round_count, year)
-        disk_key = f"season_stats_{year}_r{done}" if done >= 0 else None
-        if disk_key:
-            persisted = disk_cache_get(disk_key)
-            if persisted:
-                cache_set(ck, persisted)
-                return persisted
-
-        result = await asyncio.to_thread(_compute_season_stats, year)
+        result = await asyncio.to_thread(compute_and_persist, year)
         cache_set(ck, result)
-        if disk_key and result.get("rounds_complete"):
-            disk_cache_set(disk_key, result)
         return result
