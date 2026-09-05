@@ -68,16 +68,25 @@ export async function fetcher<T>(path: string): Promise<T> {
 /**
  * Keep retrying while the backend is merely absent, and only then.
  *
- * A Render free instance takes ~50s to wake, so the window to survive is
- * tens of seconds, not milliseconds. `shouldRetryOnError: false` used to make
- * a single cold-start 502 permanent: the request failed once, SWR gave up,
- * and the page stayed empty until the visitor reloaded by hand.
+ * `shouldRetryOnError: false` used to make a single cold-start 502 permanent:
+ * the request failed once, SWR gave up, and the page stayed empty until the
+ * visitor reloaded by hand.
+ *
+ * The budget is five minutes because the two services wake in SEQUENCE, not
+ * together. A visitor arriving at a fully idle site waits for the frontend to
+ * boot (Render serves its own interstitial for that), and only then does the
+ * first /api/* call start waking the backend. Measured end to end on the live
+ * site: ~140s from page load to the backend answering. An earlier 80s budget
+ * looked generous against the ~50s figure for a SINGLE service and still
+ * expired before any data arrived — the page went quietly empty, and the
+ * banner had already cleared because a polling live endpoint happened to
+ * succeed first. Five minutes covers the real shape with room to spare.
  *
  * Application errors are still not retried — a 404 is an answer, and hammering
- * it twenty times changes nothing.
+ * it sixty times changes nothing.
  */
-const WAKE_RETRY_MS = 4_000
-const WAKE_RETRY_LIMIT = 20  // ~80s, comfortably past a cold start
+const WAKE_RETRY_MS = 5_000
+const WAKE_RETRY_LIMIT = 60  // ~5min, covering a sequential frontend+backend wake
 
 const retryWhileUnreachable: SWRConfiguration['onErrorRetry'] = (
   err, _key, _config, revalidate, { retryCount },
