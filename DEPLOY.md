@@ -1,5 +1,45 @@
 # Deploying
 
+## Render loading and recovery (2026-09-09)
+
+The deployed services are `f1-dashboard-web` and `f1-dashboard-api-v2`, both
+on Free compute. The public entry point is
+https://f1-dashboard-web.onrender.com and its server-side `BACKEND_ORIGIN`
+must be https://f1-dashboard-api-v2.onrender.com.
+
+A cold-start check returned the homepage in 22.3s and API health in 52.4s.
+The frontend proxy returned a **plain-text HTTP 500** before the API became
+ready. Once warm, health, calendar, circuits and standings returned JSON in
+0.5–0.7s. These are observations from one run, not latency guarantees.
+
+The client now recognises proxy 500/502/503/504 and HTML loading responses as
+retryable, bounds JSON reads to 25s, and uses one health probe with a five-minute
+recovery budget. Valid health JSON triggers revalidation of backend SWR keys.
+Returning to the tab or restoring network connectivity retries an outage;
+the connection notice also provides a manual retry. Application JSON errors
+such as 401/404/500 remain errors rather than endless retries.
+
+`frontend/instrumentation.ts` starts one best-effort API wake request while
+the production Next server boots, without awaiting it. It does not run a
+keep-alive schedule. The hero initially downloads one poster and loads its
+animation only on scroll, with two concurrent image requests. Data Saver,
+2G and reduced-motion preferences use the static image.
+
+Free Render instances still sleep after 15 idle minutes. App code cannot
+eliminate the host's loading page before Next starts. For consistently fast
+first visits, move both web services to always-on compute, or host the
+frontend on a platform that serves it without an idle wake. Changing compute
+introduces recurring charges and requires a separate budget decision. Do not
+keep both services awake with external pings: two continuously running free
+services exceed the workspace's 750 monthly free instance hours.
+
+Verification: `node scripts/api-recovery.test.mjs`, `tsc --noEmit`, and
+`next build` from `f1-dashboard/frontend`. A production browser smoke check
+with a simulated 20s plain-text 500 outage confirmed that calendar and
+standings populate without reloading, and the notice clears automatically.
+
+---
+
 Two halves: a **FastAPI backend** and a **Next.js frontend**. Deploy the backend
 first — the frontend needs its URL at build time.
 

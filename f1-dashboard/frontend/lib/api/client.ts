@@ -1,106 +1,76 @@
 'use client'
 
-/**
- * Single SWR-backed data layer.
- *
- * Before this existed every component ran its own `useEffect(() => fetch(...))`, so one
- * page load could fire the same request three times and nothing was shared between routes.
- * SWR was already a dependency but unused. Everything now goes through here so we get, for
- * free: request dedupe, a cache shared across routes, `keepPreviousData` (no loading flash
- * when switching round/driver), and proper cancellation — which replaces the hand-rolled
- * `cancelled` flags scattered through the pages.
- */
-
 import { useSyncExternalStore } from 'react'
 import useSWR, { mutate, type SWRConfiguration } from 'swr'
 import { BACKEND_URL } from '@/lib/constants'
+import { ApiError, fetchJson } from './transport'
+import { createRecovery } from './recovery'
 
-export class ApiError extends Error {
-  status: number
-  /**
-   * True when nothing ever handled the request — a transport failure, or a
-   * proxy answering for a backend that isn't up yet. Distinct from a 404 or a
-   * 500, which mean the app itself replied. Only these are worth retrying.
-   */
-  unreachable: boolean
-  constructor(status: number, message: string, unreachable = false) {
-    super(message)
-    this.status = status
-    this.unreachable = unreachable
-    this.name = 'ApiError'
-  }
+export { ApiError } from './transport'
+
+export type BackendStatus = 'online' | 'waking' | 'down' | 'unavailable'
+let backendStatus: BackendStatus = 'online'
+const healthSubs = new Set<() => void>()
+
+function setBackendStatus(next: BackendStatus) {
+  if (next === backendStatus) return
+  backendStatus = next
+  healthSubs.forEach(fn => fn())
 }
 
-/**
- * Statuses that mean "nothing is listening yet" rather than "the app said no".
- * A sleeping Render instance does not refuse the connection — its edge accepts
- * it and answers 502 while the container boots.
- */
-const GATEWAY_STATUSES = new Set([502, 503, 504])
+function pendingStatus(): BackendStatus {
+  return typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    ? 'down' : 'waking'
+}
 
-/** `path` is backend-relative ('/api/standings/'). BACKEND_URL is '' on a public host. */
+const recovery = createRecovery({
+  probe: async () => {
+    try {
+      const result = await fetchJson<{ status?: string }>(`${BACKEND_URL}/api/health`, 12_000)
+      if (result.status === 'ok') return true
+    } catch { /* A failed health check must not strand the other panels. */ }
+    setBackendStatus(pendingStatus())
+    return false
+  },
+  recovered: () => {
+    const wasUnreachable = backendStatus !== 'online'
+    setBackendStatus('online')
+    if (wasUnreachable) void revalidateAll().catch(() => {})
+  },
+  unavailable: () => setBackendStatus('unavailable'),
+})
+
+/** Only a validated health response clears a reported outage. */
 export async function fetcher<T>(path: string): Promise<T> {
-  let res: Response
   try {
-    res = await fetch(`${BACKEND_URL}${path}`)
-  } catch (err) {
-    // fetch only throws for transport failures — nothing is listening at all.
-    // That is the local-dev shape: the uvicorn process isn't running.
-    setBackendStatus('down')
-    throw new ApiError(0, 'Cannot reach the backend', true)
+    return await fetchJson<T>(`${BACKEND_URL}${path}`)
+  } catch (error) {
+    if (error instanceof ApiError && error.unreachable && typeof window !== 'undefined') {
+      if (backendStatus !== 'unavailable') {
+        setBackendStatus(pendingStatus())
+        recovery.start()
+      }
+    }
+    throw error
   }
-  // The hosted shape is different and used to be invisible here. A free
-  // instance that has spun down still ACCEPTS the connection — Render's edge
-  // answers 502/503 for the ~50s the container takes to wake — so the catch
-  // above never runs. Reporting that as healthy is what left every page
-  // rendering an empty shell with no banner and no retry.
-  if (GATEWAY_STATUSES.has(res.status)) {
-    setBackendStatus('waking')
-    throw new ApiError(res.status, 'Backend is waking up', true)
-  }
-  setBackendStatus('online')
-  if (!res.ok) {
-    throw new ApiError(res.status, `Request failed (${res.status})`)
-  }
-  return res.json() as Promise<T>
 }
-
-/**
- * Keep retrying while the backend is merely absent, and only then.
- *
- * `shouldRetryOnError: false` used to make a single cold-start 502 permanent:
- * the request failed once, SWR gave up, and the page stayed empty until the
- * visitor reloaded by hand.
- *
- * The budget is five minutes because the two services wake in SEQUENCE, not
- * together. A visitor arriving at a fully idle site waits for the frontend to
- * boot (Render serves its own interstitial for that), and only then does the
- * first /api/* call start waking the backend. Measured end to end on the live
- * site: ~140s from page load to the backend answering. An earlier 80s budget
- * looked generous against the ~50s figure for a SINGLE service and still
- * expired before any data arrived — the page went quietly empty, and the
- * banner had already cleared because a polling live endpoint happened to
- * succeed first. Five minutes covers the real shape with room to spare.
- *
- * Application errors are still not retried — a 404 is an answer, and hammering
- * it sixty times changes nothing.
- */
-const WAKE_RETRY_MS = 10_000
-const WAKE_RETRY_LIMIT = 30  // ~5min ceiling; the probe below is what normally recovers
 
 const retryWhileUnreachable: SWRConfiguration['onErrorRetry'] = (
-  err, _key, _config, revalidate, { retryCount },
+  error, _key, _config, revalidate, { retryCount },
 ) => {
-  if (!(err instanceof ApiError) || !err.unreachable) return
-  if (retryCount > WAKE_RETRY_LIMIT) return
-  setTimeout(() => revalidate({ retryCount }), WAKE_RETRY_MS)
+  if (!(error instanceof ApiError) || !error.unreachable || retryCount > 30) return
+  setTimeout(() => {
+    // While asleep, the shared health probe owns recovery. Once healthy,
+    // individual busy endpoints still get a bounded retry.
+    if (backendStatus === 'online') revalidate({ retryCount })
+  }, 10_000)
 }
 
-/** Season/historical data — changes at most once per race weekend. */
 export function useApi<T>(path: string | null, opts?: SWRConfiguration<T>) {
   return useSWR<T>(path, fetcher, {
     dedupingInterval: 60_000,
     revalidateOnFocus: false,
+    revalidateOnReconnect: true,
     revalidateIfStale: false,
     keepPreviousData: true,
     shouldRetryOnError: true,
@@ -109,7 +79,6 @@ export function useApi<T>(path: string | null, opts?: SWRConfiguration<T>) {
   })
 }
 
-/** Live-session data — polls, and revalidates when the tab regains focus. */
 export function useLiveApi<T>(path: string | null, opts?: SWRConfiguration<T>) {
   return useSWR<T>(path, fetcher, {
     dedupingInterval: 2_000,
@@ -117,125 +86,54 @@ export function useLiveApi<T>(path: string | null, opts?: SWRConfiguration<T>) {
     revalidateOnFocus: true,
     keepPreviousData: true,
     shouldRetryOnError: true,
+    onErrorRetry: retryWhileUnreachable,
     ...opts,
   })
 }
 
-/**
- * Array-shaped endpoints. The backend returns bare arrays for lists; this guarantees a
- * stable `[]` so callers never have to write `Array.isArray(x) ? x : []` again.
- */
 export function useApiList<T>(path: string | null, opts?: SWRConfiguration<T[]>) {
   const { data, ...rest } = useApi<T[]>(path, opts)
   return { data: Array.isArray(data) ? data : [], ...rest }
 }
 
-/* ---------------------------------------------------------------------------
-   Backend reachability.
-
-   Every page on this site reads from the API, so when the backend process is
-   not running each one renders as an empty shell with no explanation — the
-   failure looks like "the website is broken" rather than "the server is off".
-   `fetcher` is the single choke point for all reads, so reachability is
-   tracked here and surfaced once, globally.
-
-   Only failures where nothing HANDLED the request count. A 404 or a 500 means
-   the backend answered, which is a different problem and must not raise this
-   banner.
-
-   Two shapes, and they need different words in front of a visitor:
-
-     'down'    the connection was refused. Locally that means uvicorn isn't
-               running, and the banner can say exactly how to start it.
-     'waking'  a proxy answered 502/503 for a backend that is booting. On
-               Render's free plan this is routine — the instance sleeps after
-               ~15 minutes idle and takes ~50s to come back — and telling a
-               visitor to run uvicorn would be nonsense.
-   --------------------------------------------------------------------------- */
-
-export type BackendStatus = 'online' | 'waking' | 'down'
-
-let backendStatus: BackendStatus = 'online'
-const healthSubs = new Set<() => void>()
-
-function setBackendStatus(next: BackendStatus) {
-  if (next === backendStatus) return
-  backendStatus = next
-  healthSubs.forEach(fn => fn())
-  if (next !== 'online') startWakeProbe()
+export function retryBackendConnection() {
+  setBackendStatus(pendingStatus())
+  recovery.start()
 }
 
-/* ---------------------------------------------------------------------------
-   One probe, not a stampede.
-
-   Every panel on a page has its own SWR key, so leaving each one to retry its
-   way back means four-plus endpoints independently hammering a backend that is
-   still booting — and each only discovers the backend is up on its own next
-   tick, so panels trickle in out of order.
-
-   Measured on the live service: a cold backend answers in ~62s (34s of Render
-   scheduling the container, 26s importing fastf1/pandas, then serving). So the
-   cheap, correct thing is to ask ONE endpoint whether it is back yet, and the
-   moment it is, revalidate every key at once. /api/health is a plain JSON
-   handler that touches no data, which is why it is the probe.
-
-   Bounded on purpose: it stops as soon as the backend answers, and gives up
-   after WAKE_POLL_LIMIT rather than polling a dead backend forever.
-   --------------------------------------------------------------------------- */
-
-const WAKE_POLL_MS = 5_000
-const WAKE_POLL_LIMIT = 96  // 8 minutes, far past the ~62s a real wake takes
-
-let wakeTimer: ReturnType<typeof setTimeout> | null = null
-let wakeAttempts = 0
-
-function startWakeProbe() {
-  // No probing during SSR, and never two probes at once.
-  if (wakeTimer !== null || typeof window === 'undefined') return
-  wakeAttempts = 0
-
-  const tick = async () => {
-    wakeTimer = null
-    if (backendStatus === 'online') return
-    if (++wakeAttempts > WAKE_POLL_LIMIT) return
-
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/health`, { cache: 'no-store' })
-      if (res.ok) {
-        setBackendStatus('online')
-        // Hydrate every panel together rather than waiting for each key's own
-        // retry timer to come round.
-        void revalidateAll()
-        return
-      }
-    } catch {
-      // Still unreachable; fall through and schedule the next attempt.
-    }
-    wakeTimer = setTimeout(tick, WAKE_POLL_MS)
-  }
-
-  wakeTimer = setTimeout(tick, WAKE_POLL_MS)
+function resumeConnection() {
+  if (backendStatus !== 'online' && !document.hidden) retryBackendConnection()
 }
 
 function subscribeHealth(onChange: () => void): () => void {
   healthSubs.add(onChange)
-  return () => { healthSubs.delete(onChange) }
+  if (healthSubs.size === 1) {
+    // Wake on entry, instead of waiting for a data request to time out.
+    recovery.start()
+    window.addEventListener('online', resumeConnection)
+    document.addEventListener('visibilitychange', resumeConnection)
+  }
+  return () => {
+    healthSubs.delete(onChange)
+    if (!healthSubs.size) {
+      recovery.stop()
+      window.removeEventListener('online', resumeConnection)
+      document.removeEventListener('visibilitychange', resumeConnection)
+    }
+  }
 }
 
 const getHealth = () => backendStatus
-const getServerHealth = (): BackendStatus => 'online'  // assume reachable during SSR
-
-/** 'online', or why the API can't be reached. */
+const getServerHealth = (): BackendStatus => 'online'
 export function useBackendStatus(): BackendStatus {
   return useSyncExternalStore(subscribeHealth, getHealth, getServerHealth)
 }
 
-/** False when the API can't be reached at all (process down, or still waking). */
 export function useBackendOnline(): boolean {
   return useBackendStatus() === 'online'
 }
 
-/** Re-run every SWR key. Used by the banner's retry button. */
+/** Refresh backend panels without discarding their last successful data. */
 export async function revalidateAll() {
-  await mutate(() => true, undefined, { revalidate: true })
+  await mutate(key => typeof key === 'string' && key.startsWith('/api/'))
 }

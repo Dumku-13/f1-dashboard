@@ -185,7 +185,7 @@ app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 
 
 @app.get("/api/health")
-def health():
+async def health():
     return {"status": "ok", "season": 2026, "cache_path": cache_path}
 
 

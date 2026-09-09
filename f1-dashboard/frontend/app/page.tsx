@@ -31,6 +31,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { ArrowUpRight, CalendarDays, Radio, Trophy } from 'lucide-react'
 import { useNextRound, useCircuits, useStandings, SEASON } from '@/lib/api/hooks'
 import { CIRCUIT_VIEWBOX } from '@/lib/constants'
 import HeroFrameScrub from '@/components/landing/HeroFrameScrub'
@@ -109,13 +111,6 @@ export default function HeroPrototypePage() {
 
   return (
     <div className="hp-root">
-      {/* Archivo carries a `wdth` axis that the app's global font link doesn't
-          request. Loaded here rather than in the root layout so a parked
-          redesign adds nothing to the shipped app's critical path. */}
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap"
-      />
       <style>{PROTOTYPE_CSS}</style>
 
       <HeroFrameScrub />
@@ -144,7 +139,7 @@ export default function HeroPrototypePage() {
                   arrived - see `known` in useNextRound. Saying "No further
                   rounds" over a request that simply hasn't landed yet is the
                   page confidently reporting the wrong thing. */}
-              {event?.name ?? (calendarKnown ? 'No further rounds' : 'Loading the season…')}
+              {event?.name ?? (calendarKnown ? 'Season complete' : 'Your race weekend.')}
             </h1>
 
             <p className="hp-circuit hp-rise" style={{ '--d': '300ms' } as React.CSSProperties}>
@@ -167,6 +162,22 @@ export default function HeroPrototypePage() {
                 <dd>{leader ? `${leader.abbreviation} ${leader.points}` : '—'}</dd>
               </div>
             </dl>
+
+            <nav className="hp-actions hp-rise" style={{ '--d': '480ms' } as React.CSSProperties} aria-label="Explore the season">
+              <Link href="/live" className="hp-action hp-action--primary">
+                <Radio size={17} aria-hidden="true" />
+                <span>Open live timing</span>
+                <ArrowUpRight size={17} aria-hidden="true" />
+              </Link>
+              <Link href="/calendar" className="hp-action">
+                <CalendarDays size={17} aria-hidden="true" />
+                <span>Race calendar</span>
+              </Link>
+              <Link href="/standings" className="hp-action">
+                <Trophy size={17} aria-hidden="true" />
+                <span>Standings</span>
+              </Link>
+            </nav>
 
             <div className="hp-cue hp-rise" style={{ '--d': '520ms' } as React.CSSProperties} aria-hidden="true">
               <span className="hp-cue-line" />
@@ -346,7 +357,7 @@ const PROTOTYPE_CSS = `
 .hp-content {
   position: relative; z-index: 2;
   width: 100%; max-width: 1560px; margin: 0 auto;
-  padding: 0 clamp(20px, 5vw, 72px) clamp(28px, 5vh, 64px);
+  padding: 88px clamp(20px, 5vw, 72px) max(110px, calc(90px + env(safe-area-inset-bottom)));
   color: var(--hp-bone);
 }
 
@@ -412,6 +423,35 @@ const PROTOTYPE_CSS = `
   color: rgba(242, 240, 234, 0.5);
 }
 .hp-cue-line { width: 1px; height: 26px; background: rgba(242,240,234,0.35); }
+
+.hp-actions {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  margin-top: clamp(18px, 3vh, 30px);
+}
+.hp-action {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 48px; padding: 12px 18px;
+  border: 1px solid rgba(242, 240, 234, 0.3); border-radius: 4px;
+  background: rgba(11, 12, 14, 0.75); color: var(--hp-bone);
+  font-family: var(--hp-mono); font-size: 12px; font-weight: 600;
+  text-decoration: none; line-height: 1.4;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.hp-action:hover { background: #252525; border-color: var(--hp-bone); }
+.hp-action--primary { background: var(--hp-bone); color: #0B0C0E; border-color: var(--hp-bone); }
+.hp-action--primary:hover { background: #fff; color: #0B0C0E; }
+.hp-action:focus-visible { outline: 3px solid var(--hp-bone); outline-offset: 4px; }
+/* Keep keyboard navigation visible if the scrubber has faded the hero. */
+.hero-scrub-active .hp-content:focus-within { opacity: 1; transform: none; }
+
+@media (max-width: 480px) {
+  .hp-d1 { font-size: clamp(40px, 11.5vw, 55px); overflow-wrap: anywhere; }
+  .hp-action--primary { width: 100%; }
+  .hp-action:not(.hp-action--primary) { flex: 1; padding-inline: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-action { transition: none; }
+}
 
 /* --- 02 anatomy --------------------------------------------------------- */
 /* Two viewports tall with the copy pinned in the middle of it. That length is

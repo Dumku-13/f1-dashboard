@@ -110,7 +110,11 @@ const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
 
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Frames retain their names across edits, so cache briefly, not forever.
+      { source: "/hero/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }] },
+    ];
   },
 
   // Force HTTPS. The app sits behind a proxy that terminates TLS (Cloudflare
@@ -147,7 +151,10 @@ const nextConfig: NextConfig = {
     // never learns the backend's address, and same-origin requests need no
     // CORS. `resolveBackendUrl()` in lib/constants.ts already returns "" for
     // any non-localhost hostname, which is what routes traffic through here.
-    const backend = process.env.BACKEND_ORIGIN || "http://127.0.0.1:8000";
+    const backend = (process.env.BACKEND_ORIGIN || "http://127.0.0.1:8000").replace(/\/+$/, "");
+    if (isProd && process.env.RENDER && !process.env.BACKEND_ORIGIN) {
+      throw new Error("BACKEND_ORIGIN must be set on Render before building the frontend.");
+    }
     return [
       {
         source: "/api/:path*",

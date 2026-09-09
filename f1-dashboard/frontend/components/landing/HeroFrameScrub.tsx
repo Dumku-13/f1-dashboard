@@ -10,10 +10,9 @@
  *
  * Four things here are deliberate:
  *
- * 1. **Loading starts after `window.load`.** This project already learned that
- *    a 22 MB clip with `preload="auto"` began downloading before the landing
- *    page issued a single API request and starved every data call. 3.9 MB of
- *    frames would do the same, so nothing is fetched until the page is done.
+ * 1. **One poster first, animation on scroll.** The server HTML contains the
+ *    first image. Other frames load only after interaction, two at a time,
+ *    leaving bandwidth for data. Reduced motion and Data Saver stay static.
  * 2. **Coarse pass first.** Every 8th frame lands first (~14 frames, ~500 KB),
  *    which makes the whole scroll range scrubbable almost immediately; the gaps
  *    fill in behind it. `nearestLoaded` always has something to draw, so the
@@ -80,6 +79,7 @@ export default function HeroFrameScrub() {
       if (cr > ir) { dw = cw; dh = cw / ir; dy = (ch - dh) / 2 }
       else { dh = ch; dw = ch * ir; dx = (cw - dw) / 2 }
       ctx.drawImage(img, dx, dy, dw, dh)
+      canvas.dataset.ready = 'true'
     }
 
     /**
@@ -134,6 +134,7 @@ export default function HeroFrameScrub() {
         if (images.current[i]) return resolve()
         const img = new window.Image()
         img.decoding = 'async'
+        img.fetchPriority = 'low'
         img.onload = () => {
           if (!disposed) { images.current[i] = img; if (i === current.current) paint() }
           resolve()
@@ -165,8 +166,10 @@ export default function HeroFrameScrub() {
       const coarse: number[] = []
       for (let i = 1; i <= FRAME_COUNT; i += COARSE_STRIDE) coarse.push(i)
       if (coarse[coarse.length - 1] !== FRAME_COUNT) coarse.push(FRAME_COUNT)
-      // Coarse pass in parallel — small, and it makes the full range scrubbable.
-      await Promise.all(coarse.map(load))
+      // Two requests at a time leave bandwidth for the API on mobile.
+      for (let i = 0; i < coarse.length && !disposed; i += 2) {
+        await Promise.all(coarse.slice(i, i + 2).map(load))
+      }
       if (disposed) return
       paint()
       // Then fill in at the stride the connection can afford. The last frame is
@@ -174,8 +177,8 @@ export default function HeroFrameScrub() {
       const rest: number[] = []
       for (let i = 1; i <= FRAME_COUNT; i += stride) if (!images.current[i]) rest.push(i)
       if (!images.current[FRAME_COUNT] && !rest.includes(FRAME_COUNT)) rest.push(FRAME_COUNT)
-      for (let i = 0; i < rest.length && !disposed; i += 6) {
-        await Promise.all(rest.slice(i, i + 6).map(load))
+      for (let i = 0; i < rest.length && !disposed; i += 2) {
+        await Promise.all(rest.slice(i, i + 2).map(load))
       }
     }
 
@@ -188,17 +191,24 @@ export default function HeroFrameScrub() {
     // driving `--hero-p`. Without the class the sections render fully composed,
     // so a JS failure or reduced motion leaves readable content rather than a
     // page of invisible sections waiting for a variable that never arrives.
-    if (!reduced) document.documentElement.classList.add('hero-scrub-active')
+    if (!reduced && !thrifty) document.documentElement.classList.add('hero-scrub-active')
 
-    // Nothing is fetched until the page has finished its own work.
-    if (document.readyState === 'complete') loadAll()
-    else window.addEventListener('load', loadAll, { once: true })
+    // A single poster is visible in the server HTML. Decode the animation
+    // only when the visitor scrolls; motion/data-saving preferences keep it static.
+    let started = false
+    const startSequence = () => {
+      if (started || disposed || reduced || thrifty) return
+      started = true
+      void loadAll()
+    }
+    window.addEventListener('scroll', startSequence, { once: true, passive: true })
+    if (window.scrollY > 0) startSequence()
 
     return () => {
       disposed = true
       window.removeEventListener('scroll', update)
       window.removeEventListener('resize', resize)
-      window.removeEventListener('load', loadAll)
+      window.removeEventListener('scroll', startSequence)
       ro.disconnect()
       document.documentElement.classList.remove('hero-scrub-active')
       document.documentElement.style.removeProperty('--hero-p')
@@ -207,7 +217,10 @@ export default function HeroFrameScrub() {
 
   return (
     <div className="hp-bg" aria-hidden="true">
+      <img src={frameUrl(1)} alt="" fetchPriority="high" decoding="async"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
       <canvas ref={canvasRef} className="hp-canvas" data-frame="0" data-progress="0" />
+      <style>{`.hp-canvas { position: relative; opacity: 0; } .hp-canvas[data-ready="true"] { opacity: 1; }`}</style>
       <div className="hp-bg-scrim" />
     </div>
   )
