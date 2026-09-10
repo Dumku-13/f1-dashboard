@@ -1,0 +1,148 @@
+.page { max-width: 1560px; margin: 0 auto; padding: 36px clamp(16px, 3vw, 40px) 24px; color: var(--foreground); }
+.page a { text-decoration: none; }
+.page button { font: inherit; }
+.page :is(a, button, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.header { display: flex; align-items: flex-end; justify-content: space-between; gap: 36px; margin-bottom: 30px; }
+.seasonLabel { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+.seasonLabel svg { color: var(--accent); }
+.header h1 { font-family: var(--font-display); font-size: clamp(44px, 5.6vw, 82px); font-weight: 700; letter-spacing: -.055em; line-height: 1; margin: 0; }
+.intro { font-size: 14px; color: var(--muted); margin: 16px 0 0; line-height: 1.6; }
+.seasonProgress { width: 280px; flex-shrink: 0; }
+.seasonProgress > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.seasonProgress > div:first-child > span { font-size: 12px; color: var(--muted); }
+.seasonProgress strong { font-size: 29px; letter-spacing: -.05em; }
+.seasonProgress small { font-size: 17px; color: var(--muted); font-weight: 400; }
+.roundMarkers { display: flex; gap: 4px; height: 17px; margin: 12px 0 9px; }
+.roundMarkers i { flex: 1; min-width: 0; background: var(--border); transform: skewX(-15deg); transform-origin: bottom; }
+.roundMarkers .roundComplete { background: var(--accent); }
+.textLink { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; white-space: nowrap; }
+.textLink:hover { color: var(--foreground); }
+.followStrip { display: flex; align-items: center; gap: 16px; padding: 17px 20px; margin-bottom: 24px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); color: var(--foreground); transition: border-color .2s; }
+.followStrip:hover { border-color: var(--accent); }
+.followIcon { display: flex; align-items: center; color: var(--accent); flex-shrink: 0; }
+.followStrip strong { display: block; font-size: 15px; font-weight: 600; }
+.followStrip small { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.followAction { display: flex; align-items: center; gap: 18px; margin-left: auto; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.followAction svg { transition: transform .2s; }
+.followStrip:hover .followAction svg { transform: translate(2px, -2px); }
+.summaryRail { display: grid; grid-template-columns: 1fr 1fr .65fr; border: 1px solid var(--border); margin: 24px 0 38px; background: var(--surface); }
+.summaryRail > div { padding: 22px 26px; min-width: 0; }
+.summaryRail > div + div { border-left: 1px solid var(--border); }
+.summaryRail span, .summaryRail small { display: block; color: var(--muted); font-size: 12px; }
+.summaryRail strong { display: block; font-family: var(--font-display); font-size: clamp(20px, 2.2vw, 29px); font-weight: 600; margin: 8px 0 5px; line-height: 1.2; overflow-wrap: anywhere; }
+.sectionHead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.caption { font-size: 12px; color: var(--muted); margin: 0 0 7px; }
+.sectionHead h2 { font-family: var(--font-display); margin: 0; font-size: clamp(23px, 2.6vw, 34px); font-weight: 600; letter-spacing: -.035em; }
+.championship { margin-bottom: 32px; }
+.tabs { display: inline-flex; gap: 6px; padding: 4px; margin-bottom: 18px; background: var(--surface); border: 1px solid var(--border); }
+.tabs button, .exploreTabs button { position: relative; cursor: pointer; background: transparent; border: 0; color: var(--muted); min-height: 44px; font-size: 13px; padding: 10px 24px; }
+.tabs button > span:last-child, .exploreTabs button > span:last-child { position: relative; z-index: 1; }
+.tabs button[aria-selected="true"] { color: #fff; }
+.tabSelection { position: absolute; inset: 0; background: var(--accent); }
+.champGrid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.55fr); border: 1px solid var(--border); background: var(--card); }
+.leader { position: relative; isolation: isolate; overflow: hidden; min-height: 438px; background: #0b0c0e; color: #f2f0ea; border-bottom: 3px solid var(--team); display: flex; flex-direction: column; justify-content: space-between; }
+.leader::before { content: ''; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--team) 18%, #0b0c0e); }
+.leaderPhoto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: right center; z-index: -1; }
+.leaderShade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, #090b0f66, transparent 30%, #090b0f66 48%, #090b0ff5 95%); }
+.leaderTop { display: flex; align-items: center; justify-content: space-between; padding: 24px; font-size: 12px; }
+.leaderTop svg { color: var(--team); }
+.leaderBottom { padding: 26px; }
+.leaderTeam { font-size: 12px; color: #ccd0d7; margin: 0 0 9px; }
+.leaderBottom h3 { font-family: var(--font-display); font-size: clamp(30px, 3.5vw, 48px); font-weight: 700; letter-spacing: -.04em; line-height: 1.05; max-width: 350px; margin: 0 0 18px; overflow-wrap: anywhere; }
+.leaderScore { display: flex; align-items: center; gap: 16px; }
+.leaderScore > strong { font-size: 48px; font-weight: 600; letter-spacing: -.055em; line-height: 1; }
+.leaderScore > span { font-size: 12px; color: #ccd0d7; }
+.leaderScore small { display: block; font-size: 11px; margin-top: 6px; }
+.order { min-width: 0; padding: 18px 28px 10px; }
+.orderHead { display: flex; justify-content: space-between; padding: 4px 0 14px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--border); }
+.orderList { list-style: none; padding: 0; margin: 0; }
+.orderRow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 46px; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--hairline); }
+.position { font-size: 12px; color: var(--muted); }
+.driverIdentity { min-width: 0; }
+.driverIdentity > strong { display: block; font-size: 14px; font-weight: 600; }
+.driverIdentity > small { display: block; font-size: 11px; color: var(--muted); margin: 3px 0 8px; }
+.pointsTrack { height: 3px; background: var(--border); overflow: hidden; }
+.pointsTrack > div { height: 100%; }
+.rowPoints { font-size: 20px; text-align: right; font-weight: 500; }
+.orderFooter { display: flex; align-items: center; justify-content: space-between; min-height: 44px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.orderFooter:hover { color: var(--foreground); }
+.performance { border: 1px solid var(--border); border-top: 0; background: var(--surface); }
+.performanceToggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 18px 24px; text-align: left; border: 0; background: transparent; color: var(--foreground); cursor: pointer; }
+.performanceToggle > span { display: flex; align-items: center; gap: 12px; }
+.performanceToggle strong { font-size: 13px; font-weight: 500; }
+.performanceToggle > span:first-child > svg { flex-shrink: 0; color: var(--muted); }
+.performanceBody { padding: 0 18px 18px; }
+.empty { min-height: 350px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; padding: 24px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 14px; text-align: center; }
+.button { cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--foreground); padding: 10px 18px; min-height: 44px; }
+.skeleton { background: var(--border); animation: breathe 1.8s ease-in-out infinite alternate; }
+@keyframes breathe { to { opacity: .4; } }
+.explore { margin-top: 38px; }
+.sectionNote { font-size: 12px; color: var(--muted); margin: 0; }
+.exploreTabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
+.exploreTabs button { padding: 13px 24px; min-height: 48px; }
+.exploreTabs button[aria-selected="true"] { color: var(--foreground); }
+.exploreSelection { position: absolute; bottom: -1px; left: 0; right: 0; height: 3px; background: var(--accent); }
+.groupDescription { font-size: 13px; color: var(--muted); margin: 18px 0; }
+.toolGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+.tool { position: relative; display: flex; flex-direction: column; min-height: 188px; padding: 26px; background: var(--card); color: var(--foreground); overflow: hidden; }
+.tool::after { content: ''; position: absolute; left: 0; bottom: 0; width: 100%; height: 3px; transform: scaleX(0); transform-origin: left; background: var(--accent); transition: transform .25s ease; }
+.tool:hover::after, .tool:focus-visible::after { transform: scaleX(1); }
+.toolTop { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+.toolTop > svg:first-child { color: var(--muted); }
+.toolArrow { color: var(--muted); transition: transform .22s, color .22s; }
+.tool:hover .toolArrow { transform: translate(3px, -3px); color: var(--accent); }
+.tool h3 { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin: 0 0 8px; letter-spacing: -.015em; }
+.tool p { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0; max-width: 27ch; }
+.footer { display: flex; align-items: center; gap: 14px; margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--border); }
+.footer p { font-family: var(--font-display); font-size: 14px; color: var(--muted); }
+.footer > a { margin-left: auto; }
+.finishLine { width: 24px; height: 24px; background: conic-gradient(var(--muted) 25%, transparent 0 50%, var(--muted) 0 75%, transparent 0) 0 0 / 12px 12px; opacity: .6; flex-shrink: 0; }
+@media (max-width: 1024px) {
+  .header { gap: 24px; }
+  .seasonProgress { width: 220px; }
+  .tool { padding: 22px 18px; }
+  .champGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .order { padding-inline: 18px; }
+}
+@media (max-width: 767px) {
+  .page { padding-top: 24px; }
+  .header { align-items: stretch; flex-direction: column; gap: 20px; margin-bottom: 20px; }
+  .seasonProgress { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 24px; }
+  .seasonProgress > div:first-child { grid-column: 1; }
+  .seasonProgress > a { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+  .roundMarkers { grid-column: 1; margin: 6px 0 0; height: 12px; gap: 3px; }
+  .seasonProgress strong { font-size: 23px; }
+  .followStrip { padding: 16px; gap: 12px; flex-wrap: wrap; }
+  .followStrip > span:nth-child(2) { flex: 1; min-width: 200px; }
+  .followStrip strong { font-size: 14px; line-height: 1.5; }
+  .followStrip small { line-height: 1.5; }
+  .followAction { margin-left: 35px; width: calc(100% - 35px); justify-content: space-between; min-height: 36px; }
+  .summaryRail { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-block: 20px 28px; }
+  .summaryRail > div { padding: 18px; }
+  .summaryRail > div:last-child { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 14px; }
+  .summaryRail > div:last-child strong { margin: 0 0 0 auto; order: 2; }
+  .summaryRail > div:last-child small { display: none; }
+  .summaryRail strong { font-size: 22px; }
+  .champGrid { grid-template-columns: minmax(0, 1fr); }
+  .leader { min-height: 360px; }
+  .leaderPhoto { object-position: right center; }
+  .leaderBottom h3 { font-size: 38px; max-width: 280px; }
+  .leaderBottom { padding: 22px; }
+  .leaderScore > strong { font-size: 42px; }
+  .order { padding: 14px 20px 10px; }
+  .orderRow { padding: 15px 0; gap: 10px; }
+  .sectionHead { flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .sectionNote { display: none; }
+  .performanceToggle { padding: 16px; }
+  .performanceToggle strong { line-height: 1.5; }
+  .toolGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tool { padding: 20px 16px; min-height: 188px; }
+  .tool h3 { font-size: 18px; }
+  .exploreTabs { gap: 0; }
+  .exploreTabs button { flex: 1; padding: 12px 8px; font-size: 12px; white-space: nowrap; }
+  .footer { gap: 10px; flex-wrap: wrap; }
+  .footer p { font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page *, .page *::after { animation: none !important; transition: none !important; }
+}

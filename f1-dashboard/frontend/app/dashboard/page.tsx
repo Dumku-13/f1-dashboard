@@ -1,476 +1,209 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type CSSProperties, type KeyboardEvent } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { useRouter } from 'next/navigation'
-import Greeting from '@/components/home/Greeting'
-import CountdownTimer from '@/components/home/CountdownTimer'
-import VideoBackground from '@/components/home/VideoBackground'
-import { motion } from 'framer-motion'
-import { CalendarDays, Trophy, Users, Car, BarChart3, LineChart, Gauge, History, Radio, MessagesSquare, Swords, Gamepad2, Target, CircleUser, Crosshair, ChevronRight } from 'lucide-react'
-// Statically imported on purpose: DriverPulse owns the /api/popularity/index
-// request, and code-splitting it pushed that fetch behind its own chunk load
-// (measured: request start moved 749ms -> 1192ms). Its own weight is trivial.
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { ArrowUpRight, Radio, ChevronDown, Crosshair, Trophy, Flag, CalendarDays, Gauge, LineChart, BarChart3, Users, Car, History, MessagesSquare, Swords, Target, Gamepad2, CircleUser } from 'lucide-react'
+import DashboardWeekend from '@/components/home/DashboardWeekend'
 import DriverPulse from '@/components/home/DriverPulse'
-import { useLiveStatus } from '@/lib/live'
 import { useCalendar, useStandings, SEASON } from '@/lib/api/hooks'
-import { useApiList } from '@/lib/api/client'
-import type { Standings, CalendarEvent } from '@/lib/types'
+import { ApiError } from '@/lib/api/client'
+import { useLiveStatus } from '@/lib/live'
+import { getDriverTheme } from '@/lib/driverAssets'
+import { TEAM_COLORS } from '@/lib/constants'
+import { hexColor } from '@/lib/utils'
+import type { Standings } from '@/lib/types'
+import styles from './dashboard.module.css'
 
-/* ---------------------------------------------------------------------------
-   Below-the-fold panels are code-split.
-
-   Everything here used to sit in the landing page's first bundle, so the
-   browser had to parse the standings tables, the season index, the pulse strip
-   and a WebGL shader library before React could hydrate and fire the very first
-   API request (~0.6-0.75s of dead time on a warm dev server). None of it is
-   needed to paint the hero, and the standings tabs only ever show one of the
-   two tables at a time — so each one loads on demand, in parallel with the data
-   it is waiting for, behind its own `.shimmer` skeleton.
-   --------------------------------------------------------------------------- */
-
-const SkeletonRows = ({ rows = 8 }: { rows?: number }) => (
-  <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-    {Array.from({ length: rows }).map((_, i) => (
-      <div key={i} className="shimmer" style={{ height: '28px', borderRadius: '6px' }} />
-    ))}
-  </div>
-)
-
-const DriverStandingsTable = dynamic(() => import('@/components/standings/DriverStandingsTable'), {
-  ssr: false,
-  loading: () => <SkeletonRows rows={10} />,
-})
-const ConstructorStandingsTable = dynamic(() => import('@/components/standings/ConstructorStandingsTable'), {
-  ssr: false,
-  loading: () => <SkeletonRows rows={11} />,
-})
 const DriverIndex = dynamic(() => import('@/components/standings/DriverIndex'), {
-  ssr: false,
-  loading: () => <div className="glass-card shimmer" style={{ height: '260px' }} />,
+  loading: () => <div className={styles.skeleton} style={{ height: 220 }} aria-label="Loading performance index" />,
 })
-// Pulls in @paper-design/shaders-react (WebGL) for one decorative button.
-const LiquidMetalButton = dynamic(
-  () => import('@/components/ui/liquid-metal').then(m => m.LiquidMetalButton),
-  { ssr: false, loading: () => <div className="shimmer" style={{ height: '34px', width: '150px', borderRadius: '8px' }} /> },
-)
+const ease = [0.22, 1, 0.36, 1] as const
 
-function LiveBanner() {
-  const { live, session } = useLiveStatus()
-  const router = useRouter()
-  if (!live) return null
+const groups = [
+  { name: 'Race day', description: 'Every angle of the weekend.', items: [
+    { href: '/follow', name: 'Follow along', description: 'Put your driver at the centre of the race.', Icon: Crosshair },
+    { href: '/live', name: 'Live timing', description: 'Gaps, tyres and race control as it happens.', Icon: Radio },
+    { href: '/calendar', name: 'Race calendar', description: 'Every session, in your local time.', Icon: CalendarDays },
+    { href: '/paddock', name: 'Paddock', description: 'Join the conversation with other fans.', Icon: MessagesSquare },
+  ] },
+  { name: 'Analysis', description: 'Find the time. Understand the difference.', items: [
+    { href: '/analysis', name: 'Race analysis', description: 'Compare pace, tyre life and strategy.', Icon: LineChart },
+    { href: '/telemetry', name: 'Telemetry', description: 'See where one driver gains on another.', Icon: Gauge },
+    { href: '/season-stats', name: 'Season statistics', description: 'The patterns behind the results.', Icon: BarChart3 },
+    { href: '/standings', name: 'Championship', description: 'The complete points picture.', Icon: Trophy },
+  ] },
+  { name: 'The grid', description: 'Get to know the people and the machines.', items: [
+    { href: '/drivers', name: 'Drivers', description: 'Explore the drivers on this season’s grid.', Icon: Users },
+    { href: '/teams', name: 'Teams', description: 'The constructors behind the cars.', Icon: Car },
+    { href: '/history', name: 'F1 history', description: 'Records and seasons worth revisiting.', Icon: History },
+    { href: '/profile', name: 'Your profile', description: 'Your badges, progress and Pit Coins.', Icon: CircleUser },
+  ] },
+  { name: 'Play', description: 'Bring your own race instinct.', items: [
+    { href: '/fantasy', name: 'Fantasy team', description: 'Build the line-up you believe in.', Icon: Swords },
+    { href: '/predictor', name: 'Race predictor', description: 'Make your calls before lights out.', Icon: Target },
+    { href: '/games', name: 'Games', description: 'Test your knowledge and earn Pit Coins.', Icon: Gamepad2 },
+  ] },
+]
 
-  return (
-    <motion.button
-      initial={{ opacity: 0, y: -14, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      onClick={() => router.push('/live')}
-      className="featured-card"
-      style={{
-        width: '100%', padding: '18px 24px', marginBottom: '18px', cursor: 'pointer',
-        display: 'flex', alignItems: 'center', gap: '16px', textAlign: 'left', border: 'none',
-      }}
-    >
-      <span className="live-dot" style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#00D131', boxShadow: '0 0 14px #00D131', flexShrink: 0 }} />
-      <div style={{ flex: 1 }}>
-        <div className="font-display" style={{ fontWeight: 900, fontSize: '18px', color: '#fff', letterSpacing: '0.02em' }}>
-          LIVE NOW — {session?.country_name} {session?.session_name}
-        </div>
-        <div style={{ fontSize: '12px', color: '#9CA3AF', marginTop: '2px' }}>
-          Live timing tower, gaps, laps, tyres and race control — updating every 4 seconds.
-        </div>
-      </div>
-      <span className="font-display" style={{ color: '#00D131', fontWeight: 800, fontSize: '14px', flexShrink: 0 }}>WATCH →</span>
-    </motion.button>
-  )
+function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number, count: number, select: (index: number) => void) {
+  const next = event.key === 'ArrowRight' ? (index + 1) % count : event.key === 'ArrowLeft' ? (index + count - 1) % count : event.key === 'Home' ? 0 : event.key === 'End' ? count - 1 : null
+  if (next == null) return
+  event.preventDefault()
+  select(next)
+  const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+  tabs?.[next]?.focus()
 }
 
-function NextSessionBanner({ calendar, calendarLoading }: { calendar: CalendarEvent[]; calendarLoading: boolean }) {
-  const router = useRouter()
-  const now = Date.now()
-  const upcoming = calendar
-    .filter(ev => new Date(ev.event_date).getTime() > now)
-    .sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime())
-  const next = upcoming[0]
-  if (!next) {
-    // Hold the slot with a skeleton while the calendar is in flight — the row
-    // used to render nothing at all and then shove the rest of the page down.
-    if (!calendarLoading) return null
-    return (
-      <div className="glass-card" style={{ padding: '22px 24px', borderLeft: '3px solid #E10600', height: '100%' }}>
-        <div style={{ fontSize: '11px', color: '#9CA3AF', letterSpacing: '0.14em', marginBottom: '10px' }}>NEXT RACE WEEKEND</div>
-        <div className="shimmer" style={{ height: '23px', width: '70%', borderRadius: '6px', marginBottom: '10px' }} />
-        <div className="shimmer" style={{ height: '13px', width: '45%', borderRadius: '4px' }} />
-        <div className="shimmer" style={{ height: '58px', borderRadius: '10px', marginTop: '18px' }} />
-      </div>
-    )
-  }
-
-  const sessions = Object.entries(next.sessions || {}).filter((entry): entry is [string, string] => {
-    const d = entry[1]
-    return !!d && new Date(d).getTime() > now
-  })
-  const nextSession = sessions.sort(([, a], [, b]) => new Date(a).getTime() - new Date(b).getTime())[0]
+function Championship({ standings, loading, failed, retry }: { standings?: Standings; loading: boolean; failed: boolean; retry: () => void }) {
+  const [tab, setTab] = useState<'drivers' | 'constructors'>('drivers')
+  const [expanded, setExpanded] = useState(false)
+  const reduced = useReducedMotion()
+  const drivers = standings?.drivers ?? []
+  const constructors = standings?.constructors ?? []
+  const rows = tab === 'drivers'
+    ? drivers.slice(0, 5).map(d => ({ key: d.abbreviation, name: d.name, detail: d.team, points: d.points, position: d.position, color: hexColor(d.team_color) || TEAM_COLORS[d.team] || 'var(--muted)' }))
+    : constructors.slice(0, 5).map(t => ({ key: t.id, name: t.name, detail: `${t.wins} ${t.wins === 1 ? 'win' : 'wins'}`, points: t.points, position: t.position, color: hexColor(t.color) || TEAM_COLORS[t.name] || 'var(--muted)' }))
+  const lead = rows[0]
+  const photo = tab === 'drivers' ? getDriverTheme(drivers[0]?.name)?.image : null
+  const gap = lead && rows[1] ? lead.points - rows[1].points : null
 
   return (
-    <div className="glass-card" style={{ padding: '22px 24px', borderLeft: '3px solid #E10600', height: '100%' }}>
-      <div style={{ fontSize: '11px', color: '#9CA3AF', letterSpacing: '0.14em', marginBottom: '10px' }}>NEXT RACE WEEKEND</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <div style={{ fontSize: '23px', fontWeight: 700 }}>Round {next.round} — {next.name}</div>
-          <div style={{ color: '#9CA3AF', fontSize: '13px', marginTop: '4px' }}>{next.country} · {next.location}</div>
-          {next.is_sprint && (
-            <span style={{ display: 'inline-block', marginTop: '8px', background: 'rgba(255,128,0,0.2)', color: '#FF8000', fontSize: '10px', padding: '2px 8px', borderRadius: '10px', fontWeight: 700, letterSpacing: '0.05em' }}>SPRINT WEEKEND</span>
-          )}
-        </div>
-        <LiquidMetalButton
-          size="sm"
-          onClick={() => router.push(`/race/${next.round}`)}
-          metalConfig={{ colorBack: '#7a1010', colorTint: '#ffb3b3', speed: 0.4 }}
-        >
-          Weekend Hub →
-        </LiquidMetalButton>
+    <section className={styles.championship} aria-labelledby="championship-title">
+      <div className={styles.sectionHead}>
+        <div><p className={styles.caption}>The title fight</p><h2 id="championship-title">Championship order</h2></div>
+        <Link href="/standings" className={styles.textLink}>Full standings <ArrowUpRight size={16} aria-hidden="true" /></Link>
       </div>
-      {nextSession && (
-        <div style={{ marginTop: '18px' }}>
-          <CountdownTimer targetUTC={nextSession[1]} label={`NEXT SESSION — ${nextSession[0]}`} sessionName={next.name} />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RecentResults({ calendar, standings, calendarLoading }: { calendar: CalendarEvent[]; standings?: Standings; calendarLoading: boolean }) {
-  const now = Date.now()
-  const past = calendar
-    .filter(ev => new Date(ev.event_date).getTime() <= now)
-    .sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime())
-  const lastRace = past[0]
-
-  // This request used to be strictly serialised behind the calendar — it could
-  // not start until /sessions/calendar had returned and named the round, which
-  // cost a whole extra round-trip on top of an already-slow first paint.
-  // /standings is fired at the same instant and carries the same round number
-  // in `rounds`, so whichever of the two answers first now unblocks the podium.
-  const lastScored = (standings?.rounds || []).filter(r => r.status === 'complete').slice(-1)[0]
-  const round = lastRace?.round ?? lastScored?.round ?? null
-  const year = lastRace ? new Date(lastRace.event_date).getFullYear() : SEASON
-
-  // Deduped + cached via SWR; `null` key means "don't fetch yet" while neither
-  // source has told us which race was last.
-  const {
-    data: rows,
-    error: rowsError,
-    isLoading: rowsLoading,
-    mutate: retryPodium,
-  } = useApiList<any>(
-    round != null ? `/api/sessions/${year}/${round}/R/results` : null,
-    { shouldRetryOnError: true, errorRetryCount: 3, errorRetryInterval: 1500 },
-  )
-  const failed = !!rowsError || (!rowsLoading && round != null && rows.length === 0)
-
-  // While the calendar is in flight, keep the panel (and its podium, which may
-  // already have arrived via the standings fallback) on screen instead of
-  // popping the whole row in late. Once the calendar has answered it is the
-  // sole source of truth — no past races means no panel, as before.
-  if (!lastRace && !calendarLoading) return null
-  // time_s is total race time for the winner, gap-to-winner for everyone else
-  const podium = rows
-    .filter((r: any) => r.position && r.position <= 3)
-    .sort((a: any, b: any) => a.position - b.position)
-
-  return (
-    <div className="glass-card" style={{ padding: '22px 24px', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        {lastRace ? (
-          <div style={{ fontSize: '11px', color: '#9CA3AF', letterSpacing: '0.14em' }}>LAST RACE — {lastRace.name.toUpperCase()}</div>
-        ) : (
-          <div className="shimmer" style={{ height: '11px', width: '180px', borderRadius: '4px' }} />
-        )}
-        {lastRace && (
-          <Link href={`/race/${lastRace.round}/race`} style={{ fontSize: '12px', color: '#9CA3AF', textDecoration: 'none' }}>Full results →</Link>
-        )}
-      </div>
-      {podium.length > 0 ? (
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          {podium.map((r: any) => (
-            <div key={r.position} style={{
-              flex: '1', minWidth: '120px',
-              background: r.position === 1 ? 'rgba(255,215,0,0.08)' : 'rgba(255,255,255,0.04)',
-              border: r.position === 1 ? '1px solid rgba(255,215,0,0.25)' : '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '12px', padding: '14px 16px',
-            }}>
-              <div style={{ fontSize: '20px', marginBottom: '4px' }}>
-                {r.position === 1 ? '🥇' : r.position === 2 ? '🥈' : '🥉'}
-              </div>
-              <div style={{ fontWeight: 700, fontSize: '15px' }}>{r.abbreviation}</div>
-              <div style={{ fontSize: '11px', color: '#9CA3AF', marginTop: '2px' }}>{r.team}</div>
-              {r.time_s != null && (
-                <div style={{ fontSize: '11px', fontFamily: "'Space Grotesk', monospace", color: '#9CA3AF', marginTop: '4px' }}>
-                  {r.position === 1 ? '🏆 Winner' : `+${r.time_s.toFixed(3)}s`}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : failed ? (
-        <div style={{ minHeight: '80px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '8px' }}>
-          <div style={{ fontSize: '13px', color: '#9CA3AF' }}>Results aren&apos;t available yet.</div>
-          <button
-            onClick={() => retryPodium()}
-            style={{
-              alignSelf: 'flex-start', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-              color: '#D1D5DB', borderRadius: '8px', padding: '6px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            Retry
+      <div role="tablist" aria-label="Championship classification" className={styles.tabs}>
+        {(['drivers', 'constructors'] as const).map((value, index) => (
+          <button key={value} role="tab" id={`champ-${value}-tab`} aria-controls="champ-panel" aria-selected={tab === value} tabIndex={tab === value ? 0 : -1}
+            onClick={() => setTab(value)} onKeyDown={event => moveTab(event, index, 2, i => setTab(i === 0 ? 'drivers' : 'constructors'))}>
+            {tab === value && <motion.span layoutId="champ-selection" className={styles.tabSelection} transition={{ duration: reduced ? 0 : 0.22 }} />}
+            <span>{value === 'drivers' ? 'Drivers' : 'Constructors'}</span>
           </button>
-        </div>
-      ) : (
-        <div style={{ minHeight: '80px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '6px' }}>
-          <div className="shimmer" style={{ height: '14px', width: '60%', borderRadius: '6px', background: 'rgba(255,255,255,0.06)' }} />
-          <div className="shimmer" style={{ height: '14px', width: '40%', borderRadius: '6px', background: 'rgba(255,255,255,0.06)' }} />
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>Fetching podium — first load after a restart can take a minute.</div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="glass-card" style={{ padding: '16px 18px' }}>
-      <div style={{ fontSize: '10px', color: '#9CA3AF', letterSpacing: '0.12em', marginBottom: '8px' }}>{label}</div>
-      <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: "'Space Grotesk', monospace" }}>{value}</div>
-    </div>
-  )
-}
-
-export default function HomePage() {
-  // SWR: retry/backoff is built in (errorRetryCount), the request is deduped with every
-  // other consumer of standings/calendar, and the cache survives navigation.
-  const {
-    data: standings,
-    isLoading: standingsLoading,
-    error: standingsError,
-    mutate: retryStandings,
-  // Home is the current-season dashboard — rounds complete, next session, the
-  // live pill. It deliberately does NOT follow the season picker (which it
-  // doesn't display), so everything here stays pinned to SEASON.
-  } = useStandings(SEASON, { shouldRetryOnError: true, errorRetryCount: 3, errorRetryInterval: 1500 })
-  // Pinned, not picker-driven: see the note on useStandings above.
-  const { data: calendar, isLoading: calendarLoading } = useCalendar(SEASON)
-  const [activeTab, setActiveTab] = useState<'drivers' | 'constructors'>('drivers')
-
-  const loading = standingsLoading && !standings
-  const failedAll = !!standingsError && !standings
-
-  const leader = standings?.drivers[0]
-  const c1 = standings?.constructors[0]
-  const completed = standings?.rounds.filter(r => r.status === 'complete').length || 0
-  const total = standings?.rounds.length || 23
-
-  return (
-    <>
-      <VideoBackground />
-
-      <div style={{ position: 'relative', zIndex: 1, maxWidth: '1400px', margin: '0 auto', padding: '32px 16px' }}>
-        <LiveBanner />
-
-        {/* Hero */}
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="glass-panel"
-          style={{ borderRadius: '20px', padding: '36px 32px', marginBottom: '22px', position: 'relative', overflow: 'hidden' }}
-        >
-          <div className="speed-lines" aria-hidden />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', position: 'relative' }}>
-            <div>
-              <div className="kicker" style={{ marginBottom: '12px' }}>Formula 1 · 2026</div>
-              <Greeting />
-            </div>
-            <div style={{ fontSize: '12px', color: '#9CA3AF', textAlign: 'right' }}>
-              <div style={{ fontWeight: 600, color: '#fff', fontSize: '14px' }}>SEASON OVERVIEW</div>
-              {/* No numeric fallback: the old `|| 22` printed a wrong round
-                  count for the second or so before the calendar landed, then
-                  silently corrected itself to 23. An em dash reads as loading. */}
-              <div>{calendar.length || '—'} Rounds · 11 Teams · 22 Drivers</div>
-              <div style={{ marginTop: '2px' }}>Active Aero Override (AoA) Regulations</div>
-            </div>
-          </div>
-
-          <Link
-            href="/follow"
-            style={{
-              position: 'relative', marginTop: '22px', textDecoration: 'none',
-              display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap',
-              padding: '16px 20px', borderRadius: '14px',
-              background: 'linear-gradient(90deg, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%)',
-              border: '1px solid color-mix(in srgb, var(--accent) 55%, transparent)',
-            }}
-          >
-            <span
-              aria-hidden
-              style={{
-                width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 0 22px color-mix(in srgb, var(--accent) 60%, transparent)',
-              }}
-            >
-              <Crosshair size={19} color="#fff" />
-            </span>
-            <span style={{ minWidth: 0 }}>
-              <span className="font-display" style={{ display: 'block', fontSize: '17px', fontWeight: 800, letterSpacing: '0.03em', color: '#fff' }}>
-                FOLLOW ALONG
-              </span>
-              <span style={{ display: 'block', fontSize: '12px', color: '#D1D5DB', marginTop: '2px' }}>
-                Live timing, mini-sectors and your driver&apos;s race — one screen, alerts on.
-              </span>
-            </span>
-            <span
-              className="font-display"
-              style={{
-                marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '5px',
-                fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-                color: '#fff', padding: '9px 15px', borderRadius: '8px',
-                background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.22)',
-              }}
-            >
-              Open <ChevronRight size={13} />
-            </span>
-          </Link>
-        </motion.div>
-
-        {/* Quick stats — each panel fills in on its own, so the row reserves its
-            space up front instead of appearing only once standings land. */}
-        {standings ? (
-          <div className="rise-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '22px' }}>
-            <StatCard label="ROUNDS COMPLETE" value={`${completed} / ${total}`} />
-            <StatCard label="WDC LEADER" value={leader ? `${leader.abbreviation} — ${leader.points} PTS` : '—'} />
-            <StatCard label="WCC LEADER" value={c1 ? `${c1.name} — ${c1.points} PTS` : '—'} />
-            <StatCard label="MOST WINS 2026" value={leader ? `${standings.drivers.reduce((a, b) => a.wins >= b.wins ? a : b).abbreviation} — ${Math.max(...standings.drivers.map(d => d.wins))}` : '—'} />
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '22px' }}>
-            {['ROUNDS COMPLETE', 'WDC LEADER', 'WCC LEADER', 'MOST WINS 2026'].map(label => (
-              <div key={label} className="glass-card" style={{ padding: '16px 18px' }}>
-                <div style={{ fontSize: '10px', color: '#9CA3AF', letterSpacing: '0.12em', marginBottom: '8px' }}>{label}</div>
-                <div className="shimmer" style={{ height: '16px', width: '80%', borderRadius: '4px' }} />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* 2-col layout — both panels mount immediately and resolve independently */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: '16px', marginBottom: '22px' }}>
-          <NextSessionBanner calendar={calendar} calendarLoading={calendarLoading} />
-          <RecentResults calendar={calendar} standings={standings} calendarLoading={calendarLoading} />
-        </div>
-
-        {/* Paddock Pulse heat strip (renders null until interactions exist) */}
-        <div style={{ marginBottom: '22px' }}>
-          <DriverPulse />
-        </div>
-
-        {/* Standings */}
-        <div className="glass-card" style={{ overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {(['drivers', 'constructors'] as const).map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)} style={{
-                  padding: '6px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
-                  background: activeTab === tab ? '#E10600' : 'transparent',
-                  color: activeTab === tab ? '#fff' : '#9CA3AF',
-                  transition: 'all 0.15s',
-                }}>
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
-            </div>
-            <Link href="/standings" style={{ fontSize: '12px', color: '#9CA3AF', textDecoration: 'none' }}>
-              Full standings →
-            </Link>
-          </div>
-          {loading ? (
-            // Was a full-width animated word-cycler, which meant the landing page
-            // had to download and hydrate an animation component purely to say
-            // "loading". A row skeleton costs nothing and matches the table that
-            // replaces it, so there is no layout jump when the data lands.
-            <SkeletonRows rows={10} />
-          ) : standings ? (
-            activeTab === 'drivers' ? (
-              <DriverStandingsTable drivers={standings.drivers.slice(0, 10)} rounds={standings.rounds} compact />
-            ) : (
-              <ConstructorStandingsTable constructors={standings.constructors} rounds={standings.rounds} compact />
-            )
-          ) : (
-            <div style={{ padding: '32px', textAlign: 'center', color: '#9CA3AF', fontSize: '13px' }}>
-              <div style={{ marginBottom: '12px' }}>Couldn&apos;t reach the live server. It may be waking up — give it a second.</div>
-              <button
-                onClick={() => retryStandings()}
-                style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '2px', padding: '9px 20px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: "'Chakra Petch', sans-serif", letterSpacing: '0.06em', textTransform: 'uppercase' }}
-              >
-                Try again
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Driver of the Season teaser */}
-        {standings && (
-          <div style={{ marginTop: '22px' }}>
-            <DriverIndex drivers={standings.drivers} limit={5} />
-          </div>
-        )}
-
-        {/* Quick nav */}
-        <h2 className="section-title" style={{ marginTop: '28px', marginBottom: '14px', color: '#cbd5e1' }}>Explore</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
-          {[
-            { href: '/follow', label: 'Follow Along', desc: 'Watch with a driver', Icon: Crosshair, hot: true },
-            { href: '/live', label: 'Live Timing', desc: 'Race-day tower', Icon: Radio, hot: true },
-            { href: '/paddock', label: 'Paddock', desc: 'Fan race chat', Icon: MessagesSquare, hot: true },
-            { href: '/fantasy', label: 'Fantasy', desc: 'Build your team', Icon: Swords, hot: true },
-            { href: '/predictor', label: 'Predictor', desc: 'Call the race', Icon: Target, hot: true },
-            { href: '/games', label: 'Games', desc: 'Earn Pit Coins', Icon: Gamepad2, hot: true },
-            { href: '/profile', label: 'Profile', desc: 'Badges + coins', Icon: CircleUser },
-            { href: '/calendar', label: 'Calendar', desc: `${calendar.length || '—'} Rounds`, Icon: CalendarDays },
-            { href: '/standings', label: 'Standings', desc: 'Full WDC + WCC', Icon: Trophy },
-            { href: '/drivers', label: 'Drivers', desc: '22 on the grid', Icon: Users },
-            { href: '/teams', label: 'Teams', desc: '11 Constructors', Icon: Car },
-            { href: '/season-stats', label: 'Season Stats', desc: 'All aggregates', Icon: BarChart3 },
-            { href: '/analysis', label: 'Analysis', desc: 'Pace, tyres, strategy', Icon: LineChart },
-            { href: '/telemetry', label: 'Telemetry', desc: 'Car data overlay', Icon: Gauge },
-            { href: '/history', label: 'History', desc: 'All-time records', Icon: History },
-          ].map((l, i) => (
-            <motion.div
-              key={l.href}
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ delay: (i % 4) * 0.06, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <Link href={l.href} className={`${l.hot ? 'featured-card' : 'glass-card'} glass-card-hover`} style={{
-                padding: '16px 18px', textDecoration: 'none', display: 'block',
-              }}>
-                {/* Wraps rather than overflows: at 375px this grid resolves to two
-                    ~124px columns, and the phone type floor takes the NEW badge from
-                    8px to a legible 12px, which no longer fits beside "Live Timing"
-                    on one line. Desktop has the room and is unaffected. */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <l.Icon size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-                  <div className="font-display" style={{ fontWeight: 700, fontSize: '14px', color: '#fff', letterSpacing: '0.01em', minWidth: 0 }}>{l.label}</div>
-                  {l.hot && <span style={{ fontSize: '8px', fontWeight: 800, letterSpacing: '0.1em', color: '#FFD700', background: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.3)', borderRadius: '99px', padding: '2px 7px' }}>NEW</span>}
-                </div>
-                <div style={{ fontSize: '11px', color: '#9CA3AF', marginTop: '8px' }}>{l.desc}</div>
-              </Link>
-            </motion.div>
-          ))}
-        </div>
+        ))}
       </div>
-    </>
+      <div id="champ-panel" role="tabpanel" aria-labelledby={`champ-${tab}-tab`} tabIndex={0}>
+        {standings && lead ? (
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div key={tab} className={styles.champGrid} initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} exit={{ opacity: reduced ? 1 : 0 }} transition={{ duration: reduced ? 0 : 0.16 }}>
+              <div className={styles.leader} style={{ '--team': lead.color } as CSSProperties}>
+                {photo && <img key={photo} src={photo} alt="" loading="lazy" decoding="async" className={styles.leaderPhoto} />}
+                <div className={styles.leaderShade} />
+                <div className={styles.leaderTop}><span>Championship leader</span><Trophy size={20} aria-hidden="true" /></div>
+                <div className={styles.leaderBottom}>
+                  <p className={styles.leaderTeam}>{tab === 'drivers' ? lead.detail : 'Constructors’ championship'}</p>
+                  <h3>{lead.name}</h3>
+                  <div className={styles.leaderScore}><strong className="font-num">{lead.points}</strong><span>points{gap != null && <small>{gap === 0 ? 'Level on points with P2' : `${gap} ahead of P2`}</small>}</span></div>
+                </div>
+              </div>
+              <div className={styles.order}>
+                <div className={styles.orderHead}><span>Classification</span><span>Points</span></div>
+                <ol className={styles.orderList}>
+                  {rows.map((row, index) => (
+                    <li key={row.key} className={styles.orderRow}>
+                      <span className={`${styles.position} font-num`}>{String(row.position).padStart(2, '0')}</span>
+                      <div className={styles.driverIdentity}><strong>{row.name}</strong><small>{row.detail}</small>
+                        <div className={styles.pointsTrack} aria-hidden="true"><motion.div style={{ background: row.color, transformOrigin: 'left', width: `${Math.max(0, row.points / Math.max(1, lead.points) * 100)}%` }} initial={{ scaleX: reduced ? 1 : 0 }} whileInView={{ scaleX: 1 }} viewport={{ once: true }} transition={{ duration: reduced ? 0 : 0.65, delay: reduced ? 0 : index * 0.06, ease }} /></div>
+                      </div>
+                      <strong className={`${styles.rowPoints} font-num`}>{row.points}</strong>
+                    </li>
+                  ))}
+                </ol>
+                <Link href="/standings" className={styles.orderFooter}>View the full points matrix <ArrowUpRight size={16} aria-hidden="true" /></Link>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        ) : (
+          <div className={styles.empty}>
+            {loading ? <><div className={styles.skeleton} style={{ width: '60%', height: 26 }} /><p>Connecting to championship data…</p></> : <><Trophy size={26} /><p>{failed ? 'Championship data is unavailable right now.' : 'No championship results to show yet.'}</p><button className={styles.button} onClick={retry}>Retry standings</button></>}
+          </div>
+        )}
+      </div>
+      {!!drivers.length && <div className={styles.performance}>
+        <button onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls="performance-details" className={styles.performanceToggle}>
+          <span><Gauge size={18} aria-hidden="true" /><strong>Who’s getting the most from their car?</strong></span>
+          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: reduced ? 0 : 0.2 }}><ChevronDown size={19} aria-hidden="true" /></motion.span>
+        </button>
+        <div id="performance-details" hidden={!expanded}>
+          {expanded && <motion.div initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} transition={{ duration: reduced ? 0 : 0.25 }} className={styles.performanceBody}><DriverIndex drivers={drivers} limit={5} /></motion.div>}
+        </div>
+      </div>}
+    </section>
+  )
+}
+
+function Explore() {
+  const [active, setActive] = useState(0)
+  const reduced = useReducedMotion()
+  const group = groups[active]
+  return (
+    <section className={styles.explore} aria-labelledby="explore-title">
+      <div className={styles.sectionHead}><div><p className={styles.caption}>Make it your weekend</p><h2 id="explore-title">Explore the paddock</h2></div><p className={styles.sectionNote}>Watch. Understand. Get involved.</p></div>
+      <div role="tablist" aria-label="Explore dashboard tools" className={styles.exploreTabs}>
+        {groups.map((item, i) => <button key={item.name} id={`explore-tab-${i}`} role="tab" aria-selected={active === i} aria-controls="explore-panel" tabIndex={active === i ? 0 : -1} onClick={() => setActive(i)} onKeyDown={e => moveTab(e, i, groups.length, setActive)}>
+          {active === i && <motion.span layoutId="explore-selection" className={styles.exploreSelection} transition={{ duration: reduced ? 0 : 0.25, ease }} />}
+          <span>{item.name}</span>
+        </button>)}
+      </div>
+      <div id="explore-panel" role="tabpanel" aria-labelledby={`explore-tab-${active}`} tabIndex={0}>
+        <p className={styles.groupDescription}>{group.description}</p>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div key={group.name} className={styles.toolGrid} initial={{ opacity: reduced ? 1 : 0, x: reduced ? 0 : 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: reduced ? 1 : 0, x: reduced ? 0 : -8 }} transition={{ duration: reduced ? 0 : 0.2 }}>
+            {group.items.map(({ href, name, description, Icon }) => <Link href={href} key={href} className={styles.tool}>
+              <div className={styles.toolTop}><Icon size={25} strokeWidth={1.5} aria-hidden="true" /><ArrowUpRight size={18} className={styles.toolArrow} aria-hidden="true" /></div>
+              <h3>{name}</h3><p>{description}</p>
+            </Link>)}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </section>
+  )
+}
+
+export default function DashboardPage() {
+  const { data: standings, isLoading: standingsLoading, error: standingsError, mutate: retryStandings } = useStandings(SEASON)
+  const { data: calendar, isLoading: calendarLoading } = useCalendar(SEASON)
+  const { live, session } = useLiveStatus()
+  const reduced = useReducedMotion()
+  const completed = standings?.rounds.filter(round => round.status === 'complete').length
+  const total = calendar.length || standings?.rounds.length || null
+  const constructors = standings?.constructors ?? []
+  const mostWins = standings?.drivers.reduce<(typeof standings.drivers)[number] | null>((best, driver) => !best || driver.wins > best.wins ? driver : best, null)
+  const waiting = standingsLoading || (standingsError instanceof ApiError && standingsError.unreachable)
+
+  return (
+    <div className={styles.page}>
+      <motion.header className={styles.header} initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} transition={{ duration: reduced ? 0 : 0.45 }}>
+        <div className={styles.headerCopy}><p className={styles.seasonLabel}><Flag size={15} aria-hidden="true" /> Formula 1 / {SEASON}</p><h1>Your pit wall.</h1><p className={styles.intro}>The weekend ahead. The fight so far. Your next move.</p></div>
+        <div className={styles.seasonProgress}>
+          <div><span>Season progress</span><strong className="font-num">{completed ?? '—'} <small>/ {total ?? '—'}</small></strong></div>
+          <div className={styles.roundMarkers} aria-label={completed != null && total ? `${completed} of ${total} rounds complete` : 'Season progress loading'}>
+            {Array.from({ length: total ?? 23 }, (_, i) => <motion.i key={i} className={completed != null && i < completed ? styles.roundComplete : ''} initial={{ scaleY: reduced ? 1 : 0 }} animate={{ scaleY: 1 }} transition={{ delay: reduced ? 0 : Math.min(i * 0.015, 0.35), duration: reduced ? 0 : 0.35 }} />)}
+          </div>
+          <Link href="/calendar" className={styles.textLink}>Season calendar <ArrowUpRight size={14} aria-hidden="true" /></Link>
+        </div>
+      </motion.header>
+
+      <Link href={live ? '/live' : '/follow'} className={styles.followStrip}>
+        <span className={styles.followIcon}>{live ? <Radio size={23} aria-hidden="true" /> : <Crosshair size={23} aria-hidden="true" />}</span>
+        <span><strong>{live ? `${session?.country_name ?? 'F1'} ${session?.session_name ?? 'session'} is live` : 'A front-row seat to your driver’s race.'}</strong><small>{live ? 'Open timing, tyre strategy and race control.' : 'Follow along with timing, alerts and the details that matter.'}</small></span>
+        <span className={styles.followAction}>{live ? 'Open timing' : 'Follow along'}<ArrowUpRight size={19} aria-hidden="true" /></span>
+      </Link>
+
+      <DashboardWeekend calendar={calendar} calendarLoading={calendarLoading} standings={standings} />
+
+      <div className={styles.summaryRail} aria-label="Season highlights">
+        <div><span>Leading constructor</span><strong>{constructors[0]?.name ?? '—'}</strong><small>{constructors[0] ? `${constructors[0].points} championship points` : 'Waiting for standings'}</small></div>
+        <div><span>Most race wins</span><strong>{mostWins?.name ?? '—'}</strong><small>{mostWins ? `${mostWins.wins} ${mostWins.wins === 1 ? 'victory' : 'victories'} this season` : 'Waiting for standings'}</small></div>
+        <div><span>Still to race</span><strong className="font-num">{total && completed != null ? String(Math.max(0, total - completed)).padStart(2, '0') : '—'}</strong><small>Grand Prix weekends</small></div>
+      </div>
+
+      <Championship standings={standings} loading={!standings && waiting} failed={!!standingsError} retry={() => { void retryStandings() }} />
+      <DriverPulse />
+      <Explore />
+      <footer className={styles.footer}><span className={styles.finishLine} aria-hidden="true" /><p>Every detail. Every lap.</p><Link href="/faq" className={styles.textLink}>About the data <ArrowUpRight size={14} aria-hidden="true" /></Link></footer>
+    </div>
   )
 }
