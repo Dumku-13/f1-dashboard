@@ -1,234 +1,122 @@
 'use client'
 
-/**
- * "Add to calendar" dialog. A bare .ics download is a dead end on Windows —
- * the OS hands the file to Outlook even when the user's calendar is Google —
- * so each calendar app gets its own explicit flow:
- *  - Google: quick-add links (no file involved) or download + import page
- *  - Apple / Outlook: download the .ics and open it
- */
-
-import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { X, Download, ExternalLink, CalendarPlus, Check } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { motion, useReducedMotion } from 'framer-motion'
+import { X, Download, ExternalLink, CalendarPlus, Check, LoaderCircle } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
 import CopyButton from '@/components/ui/CopyButton'
 import { useSeason } from '@/lib/season'
+import styles from './CalendarSyncModal.module.css'
 
-const GOOGLE_IMPORT_URL = 'https://calendar.google.com/calendar/u/0/r/settings/export'
-
-// Mirrors _SESSION_DURATION_MIN in backend/routers/sessions.py
 const SESSION_MINUTES: Record<string, number> = {
   'Practice 1': 60, 'Practice 2': 60, 'Practice 3': 60,
-  'Sprint Qualifying': 45, 'Sprint Shootout': 45, 'Sprint': 60,
-  'Qualifying': 60, 'Race': 120,
+  'Sprint Qualifying': 45, 'Sprint Shootout': 45, Sprint: 60, Qualifying: 60, Race: 120,
 }
-
-function toGoogleStamp(d: Date): string {
-  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
-}
-
-/** Prefilled Google Calendar "create event" link — works without any file. */
-function googleQuickAddUrl(title: string, startIso: string, minutes: number, location: string): string {
-  const start = new Date(startIso)
-  const end = new Date(start.getTime() + minutes * 60000)
-  const params = new URLSearchParams({
-    action: 'TEMPLATE',
-    text: title,
-    dates: `${toGoogleStamp(start)}/${toGoogleStamp(end)}`,
-    location,
-    details: 'F1 Dashboard — live timing at http://localhost:3000/live',
-  })
-  return `https://calendar.google.com/calendar/render?${params.toString()}`
-}
+const stamp = (date: Date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 
 export interface SyncTarget {
-  /** undefined = whole season */
+  year?: number
   round?: number
   eventName?: string
   location?: string
   sessions?: Record<string, string | null>
 }
 
-interface Props {
-  target: SyncTarget
-  onClose: () => void
-}
-
-export default function CalendarSyncModal({ target, onClose }: Props) {
-  const [downloaded, setDownloaded] = useState(false)
-  // Follows the season picker: round numbers are only meaningful inside a
-  // season, so exporting round 5 of the year on screen must not hand back
-  // round 5 of a different year.
-  const [year] = useSeason()
+export default function CalendarSyncModal({ target, onClose }: { target: SyncTarget; onClose: () => void }) {
+  const [selectedYear] = useSeason()
+  const year = target.year ?? selectedYear
+  const reduced = useReducedMotion()
+  const dialog = useRef<HTMLDialogElement>(null)
+  const activeRequest = useRef<AbortController | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const [state, setState] = useState<'idle' | 'loading' | 'saved' | 'error'>('idle')
+  const [origin, setOrigin] = useState('https://f1-dashboard-web.onrender.com')
   const icsUrl = `${BACKEND_URL}/api/sessions/calendar/${year}/ics${target.round ? `?round=${target.round}` : ''}`
-  // BACKEND_URL is '' on a public host (everything goes through the /api/*
-  // rewrite), so the path alone is relative — a subscription link has to be
-  // absolute or the calendar app has nothing to resolve it against.
-  const subscribeUrl = typeof window === 'undefined' ? icsUrl : new URL(icsUrl, window.location.origin).toString()
-  const scope = target.round ? `${target.eventName} weekend` : `full ${year} season`
+  const scope = target.round ? `${target.eventName || `Round ${target.round}`} weekend` : `${year} season`
+  const sessions = Object.entries(target.sessions || {})
+    .filter((entry): entry is [string, string] => !!entry[1] && Number.isFinite(Date.parse(entry[1])) && Date.parse(entry[1]) > Date.now())
+    .sort((a, b) => Date.parse(a[1]) - Date.parse(b[1]))
 
-  const download = () => {
-    // Anchor with download attr keeps the browser from navigating away;
-    // the backend already sends Content-Disposition: attachment.
-    const a = document.createElement('a')
-    a.href = icsUrl
-    a.download = ''
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setDownloaded(true)
+  useEffect(() => { setMounted(true); setOrigin(window.location.origin) }, [])
+  useEffect(() => {
+    if (!mounted) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    dialog.current?.showModal()
+    document.body.style.overflow = 'hidden'
+    return () => {
+      activeRequest.current?.abort()
+      document.body.style.overflow = previousOverflow
+      previousFocus?.focus()
+    }
+  }, [mounted])
+
+  async function download() {
+    if (activeRequest.current) return
+    const controller = new AbortController()
+    activeRequest.current = controller
+    const timeout = window.setTimeout(() => controller.abort(), 35_000)
+    setState('loading')
+    try {
+      const response = await fetch(icsUrl, { signal: controller.signal })
+      if (!response.ok) throw new Error('Calendar unavailable')
+      const content = await response.text()
+      if (!content.startsWith('BEGIN:VCALENDAR') || !content.includes('BEGIN:VEVENT')) throw new Error('Invalid calendar')
+      const objectUrl = URL.createObjectURL(new Blob([content], { type: 'text/calendar;charset=utf-8' }))
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = `f1-${year}${target.round ? `-round-${target.round}` : ''}.ics`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000)
+      setState('saved')
+    } catch {
+      if (dialog.current?.open) setState('error')
+    } finally {
+      window.clearTimeout(timeout)
+      activeRequest.current = null
+    }
   }
 
-  // Escape closes, matching the backdrop click.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [onClose])
-
-  const upcomingSessions = Object.entries(target.sessions || {}).filter(
-    (entry): entry is [string, string] => !!entry[1] && new Date(entry[1]).getTime() > Date.now()
-  )
-
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.78)',
-          display: 'flex', alignItems: 'center',
-          justifyContent: 'center', padding: '16px',
-        }}
-      >
-        <motion.div
-          initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
-          onClick={e => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="cal-sync-title"
-          className="glass-card"
-          style={{
-            width: '100%', maxWidth: '440px', maxHeight: '85vh', overflowY: 'auto',
-            padding: '22px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-            <div>
-              <h2 id="cal-sync-title" className="section-title" style={{ marginBottom: '6px' }}>Add to calendar</h2>
-              <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                Every session of the {scope}, with 30-minute reminders
-              </div>
-            </div>
-            <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '4px' }}>
-              <X size={18} />
-            </button>
+  if (!mounted) return null
+  return createPortal(
+    <dialog ref={dialog} className={styles.dialog} aria-labelledby="cal-sync-title" aria-describedby="cal-sync-description"
+      onCancel={event => { event.preventDefault(); onClose() }} onClick={event => { if (event.target === event.currentTarget) onClose() }}>
+      <motion.div className={styles.content} initial={{ opacity: reduced ? 1 : 0, y: reduced ? 0 : 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : 0.22 }}>
+        <header className={styles.header}>
+          <span className={styles.icon}><CalendarPlus size={25} aria-hidden="true" /></span>
+          <button onClick={onClose} aria-label="Close calendar dialog" className={styles.close}><X size={20} /></button>
+        </header>
+        <h2 id="cal-sync-title">Make time for race day.</h2>
+        <p id="cal-sync-description" className={styles.intro}>Add the {scope} to your calendar. Session times appear in your calendar’s timezone.</p>
+        <section className={styles.download} aria-labelledby="calendar-file-title">
+          <h3 id="calendar-file-title">{target.round ? 'The whole weekend, one file' : 'The whole season, one file'}</h3>
+          <p>Import into Apple Calendar, Outlook or Google Calendar. Includes 30-minute reminders; session durations are estimates.</p>
+          <button className={styles.primary} onClick={download} disabled={state === 'loading'}>
+            {state === 'loading' ? <LoaderCircle size={17} className={styles.spin} /> : state === 'saved' ? <Check size={17} /> : <Download size={17} />}
+            {state === 'loading' ? 'Preparing calendar…' : state === 'saved' ? 'Download again' : state === 'error' ? 'Retry download' : 'Download calendar'}
+          </button>
+          <div aria-live="polite" className={styles.feedback}>
+            {state === 'saved' && <span>File prepared. Open it from Downloads to import your sessions.</span>}
+            {state === 'error' && <span role="alert">The calendar could not be downloaded. The server may be waking up. Please retry.</span>}
           </div>
-
-          {/* Google Calendar */}
-          <div style={{ marginTop: '18px', padding: '14px', borderRadius: '2px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <h2 className="section-title" style={{ fontSize: '11px', marginBottom: '8px' }}>Google Calendar</h2>
-            <ol style={{ margin: '0 0 12px', paddingLeft: '18px', fontSize: '12px', color: 'var(--muted)', lineHeight: 1.7 }}>
-              <li>Download the calendar file{downloaded && <Check size={12} style={{ color: 'var(--sector-green)', marginLeft: '6px', verticalAlign: '-2px' }} />}</li>
-              <li>Open Google Calendar&apos;s import page</li>
-              <li>Click <b style={{ color: 'var(--foreground)' }}>Select file from your computer</b>, pick the file, hit <b style={{ color: 'var(--foreground)' }}>Import</b></li>
-            </ol>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button onClick={download} style={{
-                display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                background: 'var(--accent)', color: '#fff', border: 'none',
-                borderRadius: '2px', padding: '8px 13px', fontSize: '11px', fontWeight: 700,
-                fontFamily: 'var(--font-display)', textTransform: 'uppercase', letterSpacing: '0.04em',
-              }}>
-                <Download size={13} /> 1. Download file
-              </button>
-              <a href={GOOGLE_IMPORT_URL} target="_blank" rel="noreferrer" style={{
-                display: 'inline-flex', alignItems: 'center', gap: '6px',
-                background: 'var(--surface)', color: 'var(--foreground)', textDecoration: 'none',
-                border: '1px solid var(--border)',
-                borderRadius: '2px', padding: '8px 13px', fontSize: '11px', fontWeight: 700,
-                fontFamily: 'var(--font-display)', textTransform: 'uppercase', letterSpacing: '0.04em',
-              }}>
-                <ExternalLink size={13} /> 2. Open import page
-              </a>
-            </div>
-          </div>
-
-          {/* Per-session quick add — no file, one click per session */}
-          {upcomingSessions.length > 0 && (
-            <div style={{ marginTop: '10px', padding: '14px', borderRadius: '2px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
-              <h2 className="section-title" style={{ fontSize: '11px', marginBottom: '4px' }}>Google quick add</h2>
-              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '10px' }}>
-                No file needed — each link opens a prefilled Google Calendar event, one session at a time.
-              </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {upcomingSessions.map(([name, date]) => (
-                  <a
-                    key={name}
-                    href={googleQuickAddUrl(
-                      `🏁 ${target.eventName} — ${name}`,
-                      date,
-                      SESSION_MINUTES[name] || 60,
-                      target.location || '',
-                    )}
-                    target="_blank" rel="noreferrer"
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: '5px',
-                      background: 'var(--card)', border: '1px solid var(--border)',
-                      color: 'var(--foreground)', textDecoration: 'none', borderRadius: '2px',
-                      padding: '5px 10px', fontSize: '11px', fontWeight: 600,
-                      fontFamily: 'var(--font-display)',
-                    }}
-                  >
-                    <CalendarPlus size={11} /> {name}
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Apple / Outlook */}
-          <div style={{ marginTop: '10px', padding: '14px', borderRadius: '2px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <h2 className="section-title" style={{ fontSize: '11px', marginBottom: '4px' }}>Apple Calendar / Outlook</h2>
-            <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '10px', lineHeight: 1.6 }}>
-              Download the file, then open it — your calendar app will offer to import all the events.
-              On iPhone, open the file from Files/Downloads and tap <b style={{ color: 'var(--foreground)' }}>Add All</b>.
-            </div>
-            <button onClick={download} style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-              background: 'var(--surface)', color: 'var(--foreground)', border: '1px solid var(--border)',
-              borderRadius: '2px', padding: '8px 13px', fontSize: '11px', fontWeight: 700,
-              fontFamily: 'var(--font-display)', textTransform: 'uppercase', letterSpacing: '0.04em',
-            }}>
-              <Download size={13} /> Download .ics file
-            </button>
-          </div>
-
-          {/* Subscribe rather than import. A downloaded .ics is a snapshot —
-              it will not follow a session time that moves, which they do. The
-              same URL added as a *subscription* keeps updating, and every
-              calendar app takes one; they just all bury the option, so the
-              link has to be copyable. */}
-          <div style={{ marginTop: '10px', padding: '14px', borderRadius: '2px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
-            <h2 className="section-title" style={{ fontSize: '11px', marginBottom: '4px' }}>Subscribe (stays up to date)</h2>
-            <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '10px', lineHeight: 1.6 }}>
-              Paste this into your calendar app&apos;s &ldquo;subscribe to calendar&rdquo; box and session
-              times will keep themselves current instead of going stale.
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <code className="font-num" style={{
-                flex: '1 1 200px', minWidth: 0, fontSize: '11px', color: 'var(--muted)',
-                background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '2px',
-                padding: '7px 9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {subscribeUrl}
-              </code>
-              <CopyButton value={subscribeUrl} label="Copy" describes="the calendar subscription link" />
-            </div>
-          </div>
-        </motion.div>
+          <a className={styles.textLink} href="https://calendar.google.com/calendar/u/0/r/settings/export" target="_blank" rel="noreferrer">Google Calendar import page <ExternalLink size={14} /></a>
+        </section>
+        {sessions.length > 0 && <section className={styles.quickAdd} aria-labelledby="google-add-title">
+          <h3 id="google-add-title">Just one session?</h3><p>Open a prefilled Google Calendar event, then save it there. Reminders follow your Google Calendar settings.</p>
+          <div className={styles.sessions}>{sessions.map(([name, iso]) => {
+            const start = new Date(iso)
+            const end = new Date(start.getTime() + (SESSION_MINUTES[name] || 60) * 60_000)
+            const params = new URLSearchParams({ action: 'TEMPLATE', text: `${target.eventName || 'Formula 1'} — ${name}`, dates: `${stamp(start)}/${stamp(end)}`, location: target.location || '', details: `F1 Dashboard: ${origin}/live\nSession duration is an estimate.` })
+            return <a key={name} href={`https://calendar.google.com/calendar/render?${params}`} target="_blank" rel="noreferrer">{name}<ExternalLink size={13} /></a>
+          })}</div>
+        </section>}
+        <details className={styles.subscription}><summary>Keep session times up to date</summary><p>Add this link as a calendar subscription. Your calendar app controls how often it refreshes.</p>
+          <div><code>{new URL(icsUrl, origin).toString()}</code><CopyButton value={new URL(icsUrl, origin).toString()} label="Copy link" describes="the calendar subscription link" /></div>
+        </details>
       </motion.div>
-    </AnimatePresence>
+    </dialog>, document.body,
   )
 }

@@ -1,10 +1,10 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
 
 import fastf1
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
+from calendar_export import build_calendar_ics, validate_calendar_request
 from utils import cache_get, cache_set, disk_cache_get, disk_cache_set, safe_val, safe_td
 from data.circuits import resolve_circuit_key
 
@@ -106,72 +106,20 @@ async def get_calendar(year: int = 2026):
     return result
 
 
-# Rough session lengths for calendar blocks
-_SESSION_DURATION_MIN = {
-    "Practice 1": 60, "Practice 2": 60, "Practice 3": 60,
-    "Sprint Qualifying": 45, "Sprint Shootout": 45, "Sprint": 60,
-    "Qualifying": 60, "Race": 120,
-}
-
-
-def _ics_escape(text: str) -> str:
-    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-
-
-def _ics_dt(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
 @router.get("/calendar/{year}/ics")
 async def get_calendar_ics(year: int, round_num: int = Query(None, alias="round")):
     """RFC-5545 calendar of every session — subscribe/import into any calendar
     app so session reminders fire in the user's local timezone, site closed."""
+    try:
+        validate_calendar_request(year, round_num)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    def _build() -> str:
-        schedule = fastf1.get_event_schedule(year, include_testing=False)
-        now_stamp = _ics_dt(datetime.now(timezone.utc))
-        lines = [
-            "BEGIN:VCALENDAR",
-            "VERSION:2.0",
-            "PRODID:-//F1 Dashboard//Session Calendar//EN",
-            "CALSCALE:GREGORIAN",
-            "METHOD:PUBLISH",
-            f"X-WR-CALNAME:F1 {year}" + (f" R{round_num}" if round_num else " Season"),
-            "X-WR-CALDESC:Every F1 session with 30-minute reminders",
-        ]
-        for _, ev in schedule.iterrows():
-            rnd = int(ev["RoundNumber"])
-            if round_num and rnd != round_num:
-                continue
-            event_name = str(ev.get("EventName", f"Round {rnd}"))
-            location = f"{ev.get('Location', '')}, {ev.get('Country', '')}"
-            for i in range(1, 6):
-                s_name = str(ev.get(f"Session{i}", "") or "")
-                s_utc = ev.get(f"Session{i}DateUtc")
-                if not s_name or s_utc is None or pd.isna(s_utc):
-                    continue
-                start = pd.Timestamp(s_utc).to_pydatetime().replace(tzinfo=timezone.utc)
-                end = start + timedelta(minutes=_SESSION_DURATION_MIN.get(s_name, 60))
-                lines += [
-                    "BEGIN:VEVENT",
-                    f"UID:f1-{year}-r{rnd}-s{i}@f1dashboard.local",
-                    f"DTSTAMP:{now_stamp}",
-                    f"DTSTART:{_ics_dt(start)}",
-                    f"DTEND:{_ics_dt(end)}",
-                    f"SUMMARY:{_ics_escape(f'🏁 {event_name} — {s_name}')}",
-                    f"LOCATION:{_ics_escape(location)}",
-                    f"DESCRIPTION:{_ics_escape(f'Round {rnd} · {s_name} · F1 {year}. Live timing: http://localhost:3000/live')}",
-                    "BEGIN:VALARM",
-                    "TRIGGER:-PT30M",
-                    "ACTION:DISPLAY",
-                    f"DESCRIPTION:{_ics_escape(f'{event_name} {s_name} starts in 30 minutes')}",
-                    "END:VALARM",
-                    "END:VEVENT",
-                ]
-        lines.append("END:VCALENDAR")
-        return "\r\n".join(lines) + "\r\n"
-
-    ics = await asyncio.to_thread(_build)
+    events = await get_calendar(year)
+    ics = build_calendar_ics(events, year, round_num)
+    if ics is None:
+        scope = f"round {round_num}" if round_num is not None else f"season {year}"
+        raise HTTPException(status_code=404, detail=f"No calendar sessions found for {scope}")
     fname = f"f1-{year}" + (f"-round{round_num}" if round_num else "") + ".ics"
     return Response(
         content=ics.encode("utf-8"),

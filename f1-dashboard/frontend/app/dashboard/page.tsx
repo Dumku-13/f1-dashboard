@@ -7,6 +7,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ArrowUpRight, Radio, ChevronDown, Crosshair, Trophy, Flag, CalendarDays, Gauge, LineChart, BarChart3, Users, Car, History, MessagesSquare, Swords, Target, Gamepad2, CircleUser } from 'lucide-react'
 import DashboardWeekend from '@/components/home/DashboardWeekend'
 import DriverPulse from '@/components/home/DriverPulse'
+import DriverDuel from '@/components/home/DriverDuel'
 import { useCalendar, useStandings, SEASON } from '@/lib/api/hooks'
 import { ApiError } from '@/lib/api/client'
 import { useLiveStatus } from '@/lib/live'
@@ -202,6 +203,7 @@ export default function DashboardPage() {
 
       <Championship standings={standings} loading={!standings && waiting} failed={!!standingsError} retry={() => { void retryStandings() }} />
       <DriverPulse />
+      <DriverDuel standings={standings} />
       <Explore />
       <footer className={styles.footer}><span className={styles.finishLine} aria-hidden="true" /><p>Every detail. Every lap.</p><Link href="/faq" className={styles.textLink}>About the data <ArrowUpRight size={14} aria-hidden="true" /></Link></footer>
     </div>

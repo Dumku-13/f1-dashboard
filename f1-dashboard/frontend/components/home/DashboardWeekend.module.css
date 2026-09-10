@@ -104,6 +104,11 @@
   min-width: 0;
 }
 
+.weekendActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 22px; }
+.weekendActions .primaryLink { margin-top: 0; }
+.calendarAction { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 13px; border: 1px solid var(--border); background: var(--surface); color: var(--foreground); font-size: 12px; cursor: pointer; transition: border-color .2s; }
+.calendarAction:hover { border-color: var(--accent); }
+
 .raceName {
   margin: 0;
   font-size: clamp(32px, 3.3vw, 48px);

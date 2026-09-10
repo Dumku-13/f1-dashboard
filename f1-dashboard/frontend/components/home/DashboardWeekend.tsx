@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
   ArrowUpRight,
   CalendarDays,
+  CalendarPlus,
   Flag,
   MapPin,
   RefreshCw,
@@ -27,6 +29,7 @@ interface DashboardWeekendProps {
 }
 
 const ease = [0.22, 1, 0.36, 1] as const
+const CalendarSyncModal = dynamic(() => import('@/components/calendar/CalendarSyncModal'))
 
 function eventEnd(event: CalendarEvent): number | null {
   const value = weekendEndsAt(event)
@@ -258,6 +261,7 @@ function SessionRail({ event, now, reduced }: { event: CalendarEvent; now: numbe
 }
 
 function UpcomingPanel({ event, circuit, circuitLoading, now, reduced }: { event: CalendarEvent; circuit?: Circuit; circuitLoading: boolean; now: number; reduced: boolean }) {
+  const [showCalendar, setShowCalendar] = useState(false)
   const date = formatISTDate(event.event_date)
   const showTrace = !!circuit?.svgPath || circuitLoading
 
@@ -282,7 +286,10 @@ function UpcomingPanel({ event, circuit, circuitLoading, now, reduced }: { event
             {event.country && event.location && <span className={styles.country}>{event.country}</span>}
           </div>
           {event.is_sprint && <span className={styles.sprintTag}>Sprint weekend</span>}
-          <Link href={`/race/${event.round}`} className={styles.primaryLink}>Weekend hub <ArrowUpRight size={17} aria-hidden="true" /></Link>
+          <div className={styles.weekendActions}>
+            <Link href={`/race/${event.round}`} className={styles.primaryLink}>Weekend hub <ArrowUpRight size={17} aria-hidden="true" /></Link>
+            <button className={styles.calendarAction} onClick={() => setShowCalendar(true)}><CalendarPlus size={17} aria-hidden="true" /> Add to calendar</button>
+          </div>
         </div>
         {showTrace && <CircuitTrace event={event} circuit={circuit} loading={circuitLoading} reduced={reduced} />}
       </div>
@@ -293,6 +300,7 @@ function UpcomingPanel({ event, circuit, circuitLoading, now, reduced }: { event
         <Fact label="Circuit type" value={circuit?.circuit_type || '—'} />
       </div>}
       <SessionRail event={event} now={now} reduced={reduced} />
+      {showCalendar && <CalendarSyncModal target={{ year: eventYear(event), round: event.round, eventName: event.name, location: [event.location, event.country].filter(Boolean).join(', '), sessions: event.sessions }} onClose={() => setShowCalendar(false)} />}
     </motion.article>
   )
 }
