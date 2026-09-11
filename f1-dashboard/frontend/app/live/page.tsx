@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useLiveSession, useBroadcastDelay, DELAY_PRESETS_S, fmtLap, fmtGap, type TowerRow, type TowerSector, type LiveRaceControl } from '@/lib/live'
+import { useLiveSession, useBroadcastDelay, DELAY_PRESETS_S, fmtLap, fmtGap, type TowerRow, type TowerSector } from '@/lib/live'
+import RaceControlFeed from '@/components/live/RaceControlFeed'
 import TeamRadioPanel from '@/components/live/TeamRadioPanel'
 import TimingTower, { type TowerView } from '@/components/live/TimingTower'
 import BenchmarksPanel from '@/components/live/BenchmarksPanel'
@@ -14,8 +15,7 @@ import PopOutButton from '@/components/widgets/PopOutButton'
 import TrackMap from '@/components/live/TrackMap'
 import SessionClock from '@/components/live/SessionClock'
 import EngineerDock from '@/components/engineer/EngineerDock'
-import { COMPOUND_COLORS, FLAG_COLORS } from '@/lib/constants'
-import { Flag, Thermometer, Wind, Droplets, Radio, Bell, Clock, Maximize2, Minimize2 } from 'lucide-react'
+import { Thermometer, Wind, Droplets, Bell, Clock, Maximize2, Minimize2 } from 'lucide-react'
 import LastUpdated from '@/components/ui/LastUpdated'
 
 /** Timing view: mini-sectors take the width the three sector columns used to. */
@@ -33,44 +33,6 @@ function StatusBadge({ status }: { status: string }) {
       <span className={status === 'live' ? 'live-dot' : ''} style={{ width: '7px', height: '7px', borderRadius: '50%', background: cfg.color, display: 'inline-block' }} />
       {cfg.label}
     </span>
-  )
-}
-
-function RaceControlFeed({ items }: { items: LiveRaceControl[] }) {
-  return (
-    <div className="glass-card" style={{ padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '640px' }}>
-      <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <Radio size={14} style={{ color: 'var(--accent)' }} />
-        <h2 className="section-title" style={{ fontSize: '12px' }}>Race Control</h2>
-      </div>
-      <div className="hide-scrollbar" style={{ overflowY: 'auto', padding: '6px 0' }}>
-        <AnimatePresence initial={false}>
-          {items.length === 0 && (
-            <div style={{ padding: '24px 18px', fontSize: '12px', color: 'var(--muted)' }}>No messages yet.</div>
-          )}
-          {items.map((m, i) => {
-            const flagColor = m.flag ? FLAG_COLORS[m.flag.toUpperCase().replace(' ', '_')] : undefined
-            return (
-              <motion.div
-                key={`${m.date}-${i}`}
-                initial={{ opacity: 0, x: 16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: Math.min(i * 0.02, 0.3) }}
-                style={{ padding: '9px 18px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '10px', alignItems: 'flex-start' }}
-              >
-                <Flag size={12} style={{ color: flagColor || 'var(--muted)', marginTop: '2px', flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontSize: '12px', lineHeight: 1.45, color: '#D1D5DB' }}>{m.message}</div>
-                  <div className="font-num" style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '3px' }}>
-                    {m.lap_number ? `LAP ${m.lap_number} · ` : ''}{new Date(m.date).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })} IST
-                  </div>
-                </div>
-              </motion.div>
-            )
-          })}
-        </AnimatePresence>
-      </div>
-    </div>
   )
 }
 
@@ -308,7 +270,7 @@ export default function LivePage() {
           <SessionClock session={session} live={status === 'live'} />
           <TrackMap rows={rows} live={status === 'live'} trackStatus={trackStatus} />
           <BenchmarksPanel session={session} rows={rows} />
-          <RaceControlFeed items={raceControl} />
+          <RaceControlFeed key={`${session?.session_key}-${session?.date_start}`} items={raceControl} />
           <TeamRadioPanel clips={live.teamRadio} rows={rows} />
         </div>
       </div>
