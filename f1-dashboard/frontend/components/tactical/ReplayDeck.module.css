@@ -1,0 +1,24 @@
+.deck { color: #e9eef5; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
+.track { min-width: 0; border: 1px solid #2c3947; background: #0d1218; border-radius: 7px; overflow: hidden; }
+.sidebar { min-width: 0; border: 1px solid #2c3947; border-radius: 7px; padding: 14px; background: #151d26; }
+.targets { max-height: 365px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #45586a #151d26; }
+.driver { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 8px; border: 0; border-bottom: 1px solid #2c3947; background: transparent; color: #e9eef5; cursor: pointer; }
+.driver:hover { background: #202c39; }
+.driver[aria-pressed='true'] { background: #253548; box-shadow: inset 3px 0 #bed0e3; }
+.number { width: 26px; flex-shrink: 0; font: 600 12px var(--font-mono, monospace); color: #91a2b6; }
+.driverName { font-size: 12px; font-weight: 600; }
+.driverDetail { font-size: 10px; color: #91a2b6; margin-top: 4px; }
+.speed { margin-left: auto; white-space: nowrap; font: 12px var(--font-mono, monospace); }
+.selected { margin: 12px 0 16px; padding: 12px; background: #0d1218; border: 1px solid #2c3947; border-radius: 5px; }
+.telemetry { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; margin-top: 14px; }
+.telemetry dt { color: #91a2b6; font-size: 10px; margin-bottom: 6px; }
+.telemetry dd { margin: 0; font: 600 16px var(--font-mono, monospace); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 9px 14px; font-size: 10px; color: #91a2b6; border-top: 1px solid #2c3947; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 6px; height: 6px; border-radius: 50%; }
+.deck button:focus-visible, .deck select:focus-visible, .deck input:focus-visible, .deck summary:focus-visible { outline: 2px solid #b7c9dd; outline-offset: 3px; }
+.deck button:disabled { opacity: .45; cursor: not-allowed; }
+.extras { font-size: 11px; color: #91a2b6; margin-top: 14px; line-height: 1.7; }
+.extras summary { cursor: pointer; }
+@media (max-width: 950px) { .layout { grid-template-columns: minmax(0, 1fr); } .targets { max-height: 250px; } }

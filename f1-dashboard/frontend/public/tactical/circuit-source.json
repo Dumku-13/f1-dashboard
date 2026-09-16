@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/bacinger/f1-circuits",
+  "commit": "394d8fbe70ef2c0b0c8d23ff7bee61fa09606055",
+  "capturedAt": "2026-09-16T10:38:18.997Z",
+  "license": "MIT",
+  "note": "Unofficial reference geometry; matching is estimated, not GPS."
+}

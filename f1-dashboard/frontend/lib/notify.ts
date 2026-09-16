@@ -103,13 +103,13 @@ export function useSessionNotifications() {
   // Pinned to the current season on purpose: this is a background alarm for
   // sessions that are about to happen, so browsing a past season in the picker
   // must not silence it (or, worse, schedule alerts for races long finished).
-  const { data: calendar } = useCalendar(SEASON)
+  const { data: calendar, isSnapshot } = useCalendar(SEASON)
 
   useEffect(() => {
-    if (!notificationsSupported()) return
+    if (!notificationsSupported() || isSnapshot) return
     const tick = setInterval(() => checkSessions(calendar), CHECK_MS)
     return () => clearInterval(tick)
-  }, [calendar])
+  }, [calendar, isSnapshot])
 }
 
 /** Settings toggle state for the calendar page. */

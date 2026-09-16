@@ -17,7 +17,8 @@ const csp = [
   // optimisation — a bad trade for an app whose pages are all client-rendered
   // anyway. 'unsafe-eval' is dev-only: webpack's HMR and react-refresh need it,
   // production does not, and maplibre-gl does its work in a worker.
-  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
+  // Cesium uses WebAssembly decoders; permit Wasm without enabling JS eval.
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isProd ? "" : " 'unsafe-eval'"}`,
 
   // Inline styles are the house idiom here — nearly every component styles
   // itself with a `style={{}}` object, so this one is structural, not laziness.
@@ -46,6 +47,8 @@ const csp = [
     // Satellite tiles for /schedule. Esri's public World Imagery service —
     // keyless, which is why the map no longer needs a Mapbox account.
     `https://services.arcgisonline.com`,
+    // Public Terrarium DEM tiles for the opt-in Cesium tactical terrain view.
+    `https://s3.amazonaws.com`,
     ...(isProd ? [] : [`http://localhost:8000`, `http://127.0.0.1:8000`, `ws://localhost:*`]),
   ].join(" "),
 

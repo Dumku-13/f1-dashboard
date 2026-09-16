@@ -1,0 +1,36 @@
+.root {
+  --foreground: #e9eef5;
+  --muted: #91a2b6;
+  --background: #0d1218;
+  --surface: #151d26;
+  --border: #2c3947;
+  --hairline: #2c3947;
+  width: 100%; min-height: calc(100vh - 56px);
+  padding: 16px clamp(10px, 1.3vw, 24px) 30px;
+  background: #0d1218; color: #e9eef5;
+  position: relative; z-index: 1;
+}
+.root :global(.glass-card), .root :global(.glass-strong) { background: #151d26; border: 1px solid #2c3947; border-radius: 5px; box-shadow: none; }
+.sessionHeader { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; padding: 4px 2px 16px; margin-bottom: 12px; border-bottom: 1px solid #2c3947; }
+.conditions { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.trackFlag { padding: 6px 10px; background: #1b2735; color: #b8c8d9; font-size: 12px; border-radius: 3px; }
+.trackFlag[data-status='AllClear'] { background: #173b30; color: #89e5b3; }
+.trackFlag[data-status='Yellow'], .trackFlag[data-status='SCDeployed'], .trackFlag[data-status='VSCDeployed'] { background: #40371b; color: #ffe077; }
+.trackFlag[data-status='Red'] { background: #4b2328; color: #ff9b9e; }
+.broadcast { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(420px, 1fr); gap: 14px; align-items: start; }
+.broadcast > *, .rail > *, .messages > *, .support > * { min-width: 0; }
+.broadcast[data-expanded='true'] { grid-template-columns: minmax(0, 1fr); }
+.rail { display: flex; flex-direction: column; gap: 12px; }
+.support, .messages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.selection { font-size: 11px; color: #a3b7cc; padding: 11px 14px; border-top: 1px solid #2c3947; background: #111923; }
+.notice { font-size: 13px; color: #ebc977; padding: 12px; background: #302b20; }
+.root a { color: #a8d3ff; }
+.root button:focus-visible, .root select:focus-visible { outline: 2px solid #a8d3ff; outline-offset: 3px; }
+@media (max-width: 1199px) {
+  .broadcast { grid-template-columns: minmax(0, 1fr); }
+  .conditions { align-items: flex-start; }
+}
+@media (max-width: 600px) {
+  .messages, .support { grid-template-columns: minmax(0, 1fr); }
+  .sessionHeader { gap: 12px; }
+}

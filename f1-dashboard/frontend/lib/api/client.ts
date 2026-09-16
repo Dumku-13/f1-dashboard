@@ -5,6 +5,8 @@ import useSWR, { mutate, type SWRConfiguration } from 'swr'
 import { BACKEND_URL } from '@/lib/constants'
 import { ApiError, fetchJson } from './transport'
 import { createRecovery } from './recovery'
+import { coreSnapshot, validCoreResponse } from './snapshot'
+import { useSnapshotRegistration } from './snapshot-status'
 
 export { ApiError } from './transport'
 
@@ -24,6 +26,8 @@ function pendingStatus(): BackendStatus {
 }
 
 const recovery = createRecovery({
+  // Healthy health endpoint + still-busy data endpoints must not form a probe storm.
+  cooldownMs: 5_000,
   probe: async () => {
     try {
       const result = await fetchJson<{ status?: string }>(`${BACKEND_URL}/api/health`, 12_000)
@@ -43,7 +47,9 @@ const recovery = createRecovery({
 /** Only a validated health response clears a reported outage. */
 export async function fetcher<T>(path: string): Promise<T> {
   try {
-    return await fetchJson<T>(`${BACKEND_URL}${path}`)
+    const data = await fetchJson<T>(`${BACKEND_URL}${path}`)
+    if (!validCoreResponse(path, data)) throw new ApiError(200, 'Core data is not ready yet', true)
+    return data
   } catch (error) {
     if (error instanceof ApiError && error.unreachable && typeof window !== 'undefined') {
       if (backendStatus !== 'unavailable') {
@@ -66,17 +72,31 @@ const retryWhileUnreachable: SWRConfiguration['onErrorRetry'] = (
   }, 10_000)
 }
 
-export function useApi<T>(path: string | null, opts?: SWRConfiguration<T>) {
-  return useSWR<T>(path, fetcher, {
+const subscribeHydration = () => () => {}
+const clientReady = () => true
+const serverReady = () => false
+
+export function useApi<T>(path: string | null, opts?: SWRConfiguration<T> & { liveOnly?: boolean }) {
+  // Calendar consumers render time-sensitive countdowns. Do not bake those
+  // snapshot-derived values into build-time HTML and cause hydration mismatches.
+  const hydrated = useSyncExternalStore(subscribeHydration, clientReady, serverReady)
+  const snapshot = !hydrated || opts?.liveOnly ? undefined : coreSnapshot(path)
+  const result = useSWR<T>(path, fetcher, {
     dedupingInterval: 60_000,
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
-    revalidateIfStale: false,
-    keepPreviousData: true,
+    revalidateIfStale: !!snapshot,
+    keepPreviousData: !snapshot,
     shouldRetryOnError: true,
     onErrorRetry: retryWhileUnreachable,
     ...opts,
   })
+  // Snapshot stays outside SWR: it is never cached or mistaken for a successful fetch.
+  const showingSnapshot = result.data === undefined && !!snapshot
+  useSnapshotRegistration(showingSnapshot ? snapshot : undefined)
+  return { ...result, data: result.data ?? (snapshot?.data as T | undefined),
+    isLoading: result.isLoading && !showingSnapshot,
+    isSnapshot: showingSnapshot, snapshotAt: showingSnapshot ? snapshot?.capturedAt : undefined }
 }
 
 export function useLiveApi<T>(path: string | null, opts?: SWRConfiguration<T>) {

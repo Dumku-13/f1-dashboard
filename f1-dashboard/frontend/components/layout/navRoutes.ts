@@ -30,6 +30,7 @@ export const ROUTE_GROUPS: Group[] = [
       { href: '/follow', label: 'Follow Along', desc: 'Watch with a driver pinned', icon: Crosshair },
       { href: '/live', label: 'Live', desc: 'Timing + race control', icon: Radio },
       { href: '/map', label: 'Track Map', desc: 'Cars on circuit', icon: Map },
+      { href: '/tactical', label: 'Tactical Ops', desc: 'Replay, target lock + voice HUD', icon: Crosshair },
       { href: '/results', label: 'Results', desc: 'Every session', icon: ListOrdered },
       { href: '/standings', label: 'Standings', desc: 'WDC + WCC', icon: Trophy },
       { href: '/schedule', label: 'Schedule', desc: '23 rounds, mapped', icon: MapPinned },

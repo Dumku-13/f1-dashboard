@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/sync-cesium.mjs",
     "build": "next build",
     "start": "next start",
-    "postinstall": "node scripts/sync-maplibre-worker.mjs && node scripts/sync-flags.mjs"
+    "postinstall": "node scripts/sync-maplibre-worker.mjs && node scripts/sync-flags.mjs && node scripts/sync-cesium.mjs"
   },
   "dependencies": {
     "@paper-design/shaders-react": "^0.0.76",
+    "cesium": "1.145.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "framer-motion": "^12.42.0",

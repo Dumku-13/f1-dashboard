@@ -161,7 +161,7 @@ export default function CircuitMap({
       </div>
 
       <div style={{ position: 'relative' }}>
-        <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} style={{ width: '100%', display: 'block', height: '75vh', maxHeight: '78vh' }} preserveAspectRatio="xMidYMid meet">
+        <svg className="ops-map-surface" viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} style={{ width: '100%', display: 'block', height: '75vh', maxHeight: '78vh' }} preserveAspectRatio="xMidYMid meet">
           <defs>
             <filter id="trackGlow" x="-20%" y="-20%" width="140%" height="140%">
               <feGaussianBlur stdDeviation="6" result="blur" />

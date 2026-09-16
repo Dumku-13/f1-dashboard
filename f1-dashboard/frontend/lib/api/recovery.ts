@@ -5,11 +5,13 @@ export function createRecovery(options: {
   unavailable: () => void
   retryMs?: number
   budgetMs?: number
+  cooldownMs?: number
 }) {
   let active = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let deadline = 0
   let generation = 0
+  let nextProbeAt = 0
 
   const start = () => {
     if (active) return
@@ -17,6 +19,7 @@ export function createRecovery(options: {
     deadline = Date.now() + (options.budgetMs ?? 300_000)
     const run = ++generation
     const tick = async () => {
+      nextProbeAt = Date.now() + (options.cooldownMs ?? 0)
       let healthy = false
       try { healthy = await options.probe() } catch { /* retry below */ }
       if (run !== generation) return
@@ -30,7 +33,9 @@ export function createRecovery(options: {
         timer = setTimeout(tick, options.retryMs ?? 5_000)
       }
     }
-    void tick()
+    const cooldown = nextProbeAt - Date.now()
+    if (cooldown > 0) timer = setTimeout(tick, cooldown)
+    else void tick()
   }
 
   const stop = () => {

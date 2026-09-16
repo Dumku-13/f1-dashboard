@@ -32,14 +32,18 @@ Other docs:
 | `f1-dashboard/frontend/FRONTEND_REDESIGN.md` | The 16-phase redesign, all complete, with what was learned in each. |
 | `f1-dashboard/frontend/DESIGN.md` | The PIT WALL visual contract. |
 | `f1-dashboard/frontend/AGENTS.md` | Repo conventions + a Next.js version warning. |
+| `f1-dashboard/frontend/COLD_START.md` | Timestamped snapshot scope, refresh command, and recovery verification. |
+| `f1-dashboard/frontend/TACTICAL_OPS.md` | Full-session replay, chunk loading, tactical controls, and remaining geographic limitations. |
 | `DOCUMENTATION.md` | Feature-level docs. |
 
 ---
 
 ## Running it
 
-The backend **must be running or every page renders empty**. That is the single
-most common failure here — the app shows a banner naming it when it happens.
+While the backend wakes, core standings, calendars, and circuit reference data
+render from a clearly timestamped frontend snapshot and update automatically when
+their APIs recover. Telemetry and authenticated features still require the live
+backend. The connection banner reports an outage separately from snapshot labels.
 
 ```bash
 # 1. Backend (FastAPI + FastF1) on :8000

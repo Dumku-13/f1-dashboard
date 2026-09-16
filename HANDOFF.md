@@ -1,5 +1,24 @@
 # F1 Dashboard — Project Handoff
 
+**2026-09-16 geographic follow-up:** Tactical Ops now includes Cesium satellite
+and DEM terrain rendering, estimated geographic alignment with coverage/error
+gates, source attribution, and local-view fallback. The previous calibration
+and Cesium TODOs are superseded by the top section of `TACTICAL_OPS.md`. See that
+document for pinned data sources, strict-CSP Cesium asset generation, and checks.
+
+**2026-09-16 cold-start/full-session follow-up:** Core standings (2024–2026),
+calendar and circuit snapshots now ship in the frontend, with per-resource UTC
+capture/source labels, strict allowlisting, automatic API replacement, and no
+telemetry/auth fallback. See `frontend/COLD_START.md` under `f1-dashboard` for
+refresh and recovery verification. Tactical Ops now has full-session playback
+and seeking via bounded chunks, with buffering, cancellation, cache limits,
+prefetch and retry; see the new top section of `TACTICAL_OPS.md`. The two-minute
+clip limitation below is superseded. No deployment was performed in this pass.
+
+**2026-09-16:** Tactical Ops now offers Past races (automatic OpenF1 two-minute windows) and Live session (existing engine). Night vision removed; Thermal 2 / Normal 3 remain. Historical API bounds use `date>` and `date<` keys; `date>=` causes OpenF1 HTTP 500. Live positions use snapshot freshness, never fabricated car telemetry.
+
+**2026-09-15 tactical addition:** See `f1-dashboard/frontend/TACTICAL_OPS.md` for the `/tactical` replay room, HUD source, local voice macros and validation. Preserve these invariants: raw OpenF1 X/Y is not latitude/longitude; unknown telemetry is neutral; coasting is amber, never braking red; gaps require timing data. Geographic satellite tracking and Cesium terrain remain calibration/scaffolding work. Existing Engineer backend chat is separate from the free local macro panel.
+
 **Last updated:** 2026-08-23 · Read this first in a new session.
 **Repo:** https://github.com/Dumku-13/f1-dashboard (**public** since 2026-08-23, `main`)
 

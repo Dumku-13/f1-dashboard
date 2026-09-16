@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { motion } from 'framer-motion'
+import { useReducedMotion } from 'framer-motion'
 import { Map as MapIcon, Maximize2, X } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
 import { hexColor } from '@/lib/utils'
@@ -18,6 +18,7 @@ import type { TowerRow } from '@/lib/live'
 import { mapEmphasis, mapPaintRank } from '@/lib/battle'
 import { VIEW_W, VIEW_H, CAR_RADIUS, PAD, boundsOf, makeProject, centroidOf } from './pitLane'
 import { useIsPhone } from '@/lib/breakpoint'
+import { cameraPoint, nextMotion, sampleMotion, type LiveMotion } from '@/lib/tactical/liveCamera'
 
 /** A numbered turn, in the same fastf1 space as the outline. */
 interface Corner { x: number; y: number; number: number; letter?: string; name?: string }
@@ -70,7 +71,7 @@ const STATUS_TINTS: Record<string, string> = {
   Red: 'rgba(232,0,45,0.6)',
 }
 
-export default function TrackMap({ rows, live, trackStatus = '', focus = null, highlight }: {
+export default function TrackMap({ rows, live, trackStatus = '', focus = null, highlight, selectedDriver, onSelectDriver, sessionKey, lastUpdate }: {
   rows: TowerRow[]
   live: boolean
   trackStatus?: string
@@ -82,8 +83,23 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
   focus?: string | null
   /** Acronyms kept at full strength alongside the focused car (their battle). */
   highlight?: string[]
+  selectedDriver?: number | null
+  onSelectDriver?: (id: number) => void
+  sessionKey?: string
+  lastUpdate?: Date | null
 }) {
   const phone = useIsPhone()
+  const reducedMotion = useReducedMotion()
+  const [localSelected, setLocalSelected] = useState<number | null>(null)
+  const [camera, setCamera] = useState<'overview' | 'follow' | 'chase'>('overview')
+  const [stale, setStale] = useState(false)
+  const [frame, setFrame] = useState(0)
+  const motions = useRef(new Map<number, LiveMotion>())
+  const previousStamp = useRef<number | null>(null)
+  const stamp = lastUpdate?.getTime() ?? null
+  const targetId = selectedDriver !== undefined ? selectedDriver : localSelected ?? rows.find(r => r.driver.name_acronym === focus)?.driver.driver_number ?? null
+  const choose = (id: number) => { setLocalSelected(id); onSelectDriver?.(id); setCamera('follow') }
+  useEffect(() => { if (selectedDriver != null) setCamera('follow') }, [selectedDriver])
   const [outline, setOutline] = useState<[number, number][]>([])
   const [corners, setCorners] = useState<Corner[]>([])
   const [pitLane, setPitLane] = useState<[number, number][]>([])
@@ -134,6 +150,11 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
 
   useEffect(() => {
     let cancelled = false
+    setOutline([]); setCorners([]); setPitLane([]); setCircuit(null); setTrackName('')
+    trailRef.current = []
+    motions.current.clear()
+    previousStamp.current = null
+    setLocalSelected(null)
     fetch(`${BACKEND_URL}/api/livetiming/track`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
@@ -152,20 +173,45 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
       })
       .catch(() => null)
     return () => { cancelled = true }
-  }, [])
+  }, [sessionKey])
 
-  const dots = useMemo(() => rows.filter(r => r.pos), [rows])
+  useEffect(() => {
+    setStale(false)
+    if (!live) return
+    const timer = window.setTimeout(() => { setStale(true); motions.current.clear() }, 15000)
+    return () => window.clearTimeout(timer)
+  }, [live, stamp, sessionKey, stamp == null ? rows : null])
+
+  const dots = useMemo(() => live && !stale ? rows.filter(r => r.pos && Number.isFinite(r.pos.x) && Number.isFinite(r.pos.y) && (r.pos.x !== 0 || r.pos.y !== 0)) : [], [rows, live, stale])
+  useEffect(() => {
+    const now = performance.now()
+    const prior = previousStamp.current
+    if (stamp != null && prior != null && stamp < prior) { motions.current.clear(); trailRef.current = [] }
+    const duration = reducedMotion ? 0 : Math.min(1500, Math.max(200, stamp != null && prior != null ? stamp - prior : 900))
+    previousStamp.current = stamp
+    const next = new Map<number, LiveMotion>()
+    for (const row of dots) next.set(row.driver.driver_number, nextMotion(motions.current.get(row.driver.driver_number), row.pos!, now, duration))
+    motions.current = next
+    setFrame(now)
+    if (reducedMotion || next.size === 0) { setFrame(now + duration + 1); return }
+    let raf = 0
+    const tick = (time: number) => { setFrame(time); if (time < now + duration) raf = requestAnimationFrame(tick) }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [dots, stamp, sessionKey, reducedMotion])
+  const target = dots.find(r => r.driver.driver_number === targetId)
+  const effectiveFocus = target?.driver.name_acronym ?? focus
 
   const highlightKey = highlight?.join(',') ?? ''
   const ordered = useMemo(() => {
-    if (!focus) return dots
+    if (!effectiveFocus) return dots
     const list = highlightKey ? highlightKey.split(',') : []
     return [...dots].sort(
       (a, b) =>
-        mapPaintRank(mapEmphasis(a.driver.name_acronym, focus, list)) -
-        mapPaintRank(mapEmphasis(b.driver.name_acronym, focus, list)),
+        mapPaintRank(mapEmphasis(a.driver.name_acronym, effectiveFocus, list)) -
+        mapPaintRank(mapEmphasis(b.driver.name_acronym, effectiveFocus, list)),
     )
-  }, [dots, focus, highlightKey])
+  }, [dots, effectiveFocus, highlightKey])
 
   // Fallback outline: trail the leader's live positions until fastf1 has data.
   // This accumulation MUST live in an effect — done in the render body, React's
@@ -189,7 +235,7 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
   const bounds = useMemo(
     () => boundsOf(shape.length > 10 ? shape : dots.map(d => [d.pos!.x, d.pos!.y] as [number, number])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [shape.length > 10 ? shape.length : dots.map(d => `${d.pos!.x}`).join(), trailVersion],
+    [shape, dots, trailVersion],
   )
 
   const tint = STATUS_TINTS[trackStatus]
@@ -262,6 +308,10 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
         </span>
       </div>
 
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, padding: '10px 14px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)' }}>
+        {(['overview', 'follow', 'chase'] as const).map(mode => <button key={mode} type="button" disabled={mode !== 'overview' && !target} aria-pressed={(target ? camera : 'overview') === mode} onClick={() => setCamera(mode)} style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '7px 10px', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', cursor: mode !== 'overview' && !target ? 'default' : 'pointer', opacity: mode !== 'overview' && !target ? 0.4 : 1, color: (target ? camera : 'overview') === mode ? '#07100d' : 'var(--muted)', background: (target ? camera : 'overview') === mode ? '#a3e6cb' : 'transparent' }}>{mode}</button>)}
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--muted)' }}>{target ? `${target.driver.name_acronym} · ${camera === 'chase' ? 'HEADING UP' : 'TARGET SELECTED'}` : 'SELECT A DRIVER TO FOLLOW'}</span>
+      </div>
       <div style={{ position: 'relative', flex: full ? 1 : undefined, minHeight: 0 }}>
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -272,7 +322,13 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
           {bounds && (() => {
             // Fullscreen exists to see the track bigger, so it gets a much
             // tighter margin than the card does.
-            const project = makeProject(bounds, full ? 6 : PAD)
+            const baseProject = makeProject(bounds, full ? 6 : PAD)
+            const targetMotion = target ? motions.current.get(target.driver.driver_number) : undefined
+            const targetPose = targetMotion ? sampleMotion(targetMotion, frame) : target?.pos
+            const tracking = camera !== 'overview' && !!targetPose
+            const targetPoint = targetPose ? baseProject(targetPose.x, targetPose.y) : [200, 170] as [number, number]
+            const angle = camera === 'chase' && targetMotion ? sampleMotion(targetMotion, frame).heading - 90 : 0
+            const project = (x: number, y: number): [number, number] => tracking ? cameraPoint(baseProject(x, y), targetPoint, angle, camera === 'chase' ? 2.5 : 1.8) : baseProject(x, y)
             const path = shape.length > 10
               ? `M ${shape.map(([x, y]) => project(x, y).map(v => v.toFixed(1)).join(',')).join(' L ')}${outline.length > 10 ? ' Z' : ''}`
               : null
@@ -292,8 +348,8 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
               <>
                 {path && (
                   <>
-                    <path d={path} fill="none" stroke={tint || 'rgba(255,255,255,0.28)'} strokeWidth={7 * k} strokeLinejoin="round" strokeLinecap="round" opacity="0.35" />
-                    <path d={path} fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth={2 * k} strokeLinejoin="round" strokeLinecap="round" />
+                    <path d={path} fill="none" stroke={tint || '#33454f'} strokeWidth={8 * k} strokeLinejoin="round" strokeLinecap="round" />
+                    <path d={path} fill="none" stroke={tint || '#c4d1d8'} strokeWidth={2.5 * k} strokeLinejoin="round" strokeLinecap="round" />
                   </>
                 )}
 
@@ -392,34 +448,40 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
                 )}
 
                 {ordered.map(row => {
-                  const [cx, cy] = project(row.pos!.x, row.pos!.y)
+                  const motion = motions.current.get(row.driver.driver_number)
+                  const pose = motion ? sampleMotion(motion, frame) : row.pos!
+                  const [cx, cy] = project(pose.x, pose.y)
                   const color = hexColor(row.driver.team_colour) || '#888'
                   const abbr = row.driver.name_acronym
-                  const emphasis = mapEmphasis(abbr, focus, highlight)
+                  const emphasis = mapEmphasis(abbr, effectiveFocus, highlight)
                   const isFocus = emphasis === 'focus'
                   // Traffic recedes rather than disappearing — you still want to
                   // see where the rest of the field is, just not read it.
                   const dimmed = emphasis === 'background'
                   const isLeader = row.position === 1
                   return (
-                    <motion.g
+                    <g
                       key={row.driver.driver_number}
-                      initial={false}
-                      animate={{ x: cx, y: cy }}
-                      transition={{ type: 'tween', ease: 'linear', duration: 0.9 }}
-                      opacity={dimmed ? 0.26 : 1}
+                      transform={`translate(${cx} ${cy})`}
+                      opacity={dimmed ? 0.6 : 1}
+                      role="button" tabIndex={0} aria-label={`Follow ${abbr}`} aria-pressed={row.driver.driver_number === targetId}
+                      onClick={() => choose(row.driver.driver_number)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(row.driver.driver_number) } }}
+                      style={{ cursor: 'pointer' }}
                     >
+                      <title>{abbr} · select to follow</title>
+                      <circle r={Math.max(14 * k, carR)} fill="transparent" />
                       {/* Broadcast-style chip: the driver's code sits INSIDE
                           the bubble. Floating it above meant two nearby cars
                           put two labels on top of each other, and the label was
                           the only readable part of a 6px dot. */}
                       <circle
-                        r={dimmed ? carR * 0.62 : isFocus ? carR * 1.15 : carR}
+                        r={isFocus ? carR * 1.15 : carR}
                         fill={color}
                         stroke={isFocus ? '#FFFFFF' : isLeader ? '#FFD700' : 'rgba(0,0,0,0.75)'}
                         strokeWidth={(isFocus ? 2.5 : isLeader ? 2 : 1.2) * k}
                       />
-                      {!dimmed && (
+                      {(
                         <text
                           y={0.5}
                           textAnchor="middle"
@@ -436,7 +498,7 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
                           {abbr}
                         </text>
                       )}
-                    </motion.g>
+                    </g>
                   )
                 })}
               </>
@@ -446,7 +508,7 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
 
         {!bounds && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--muted)', padding: '24px', textAlign: 'center' }}>
-            {live ? 'Waiting for car position data…' : 'Cars appear here when a session is live.'}
+            {stale ? 'Position feed paused — waiting for a fresh snapshot' : live ? 'Waiting for car position data…' : 'Cars appear here when a session is live.'}
           </div>
         )}
         {/* Why the circuit is empty. The map used to park the classified
@@ -457,7 +519,7 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
             giving us positions" from "nothing is running". */}
         {bounds && dots.length === 0 && (
           <div style={{ position: 'absolute', bottom: '10px', left: 0, right: 0, textAlign: 'center', fontSize: '11px', color: 'var(--muted)', padding: '0 16px' }}>
-            {live
+            {stale ? 'Position feed paused — waiting for a fresh snapshot' : live
               ? 'Car positions unavailable — F1 is not publishing the position stream for this session'
               : rows.length > 0
                 ? 'Session finished — cars show here while one is running'

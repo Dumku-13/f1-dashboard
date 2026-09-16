@@ -17,6 +17,33 @@ import { useIsPhone } from '@/lib/breakpoint'
 
 export type TowerView = 'timing' | 'stints'
 
+const BROADCAST_GRID = '28px 68px minmax(65px,1fr) minmax(65px,1fr) minmax(57px,.85fr) minmax(57px,.85fr) repeat(3,minmax(60px,1fr)) 76px 28px'
+const SEGMENT_COLORS = { none: 'rgba(255,255,255,.12)', yellow: '#FFF200', green: 'var(--sector-green)', purple: 'var(--sector-purple)', pit: '#3B82F6' }
+
+function DriverChip({ row, selected, onSelect }: { row: TowerRow; selected: boolean; onSelect?: (id: number) => void }) {
+  const color = row.driver.team_colour ? `#${row.driver.team_colour.replace('#', '')}` : '#8B95A5'
+  const chip = <span style={{ display: 'inline-block', padding: '4px 7px', borderLeft: `3px solid ${color}`, borderRadius: 2, background: `color-mix(in srgb, ${color} 22%, #11151b)`, color: '#fff', fontSize: 13, fontWeight: 850, letterSpacing: '.025em' }}>{row.driver.name_acronym}</span>
+  return onSelect ? <button type="button" aria-label={`Track ${row.driver.full_name || row.driver.name_acronym}`} aria-pressed={selected} onClick={() => onSelect(row.driver.driver_number)} style={{ padding: 0, border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>{chip}</button> : chip
+}
+
+/** Compact broadcast row. Sector bars retain the feed's exact segment states. */
+function BroadcastRow({ row, index, selected, onSelect }: { row: TowerRow; index: number; selected: boolean; onSelect?: (id: number) => void }) {
+  return <motion.div layout="position" initial={false} className="tower-row" data-selected={selected} style={{ display: 'grid', gridTemplateColumns: BROADCAST_GRID, gap: 6, alignItems: 'center', minHeight: 42, padding: '5px 10px', borderBottom: '1px solid rgba(255,255,255,.07)', boxShadow: selected ? 'inset 3px 0 #65D9FF' : undefined, background: selected ? 'rgba(101,217,255,.10)' : index % 2 ? 'rgba(255,255,255,.025)' : 'transparent', opacity: row.knockedOut ? .45 : 1, fontSize: 12 }}>
+    <span className="font-num" style={{ fontSize: 15, fontWeight: 800, color: row.position === 1 ? '#FFD700' : 'var(--foreground)' }}>{row.position ?? '—'}</span>
+    <DriverChip row={row} selected={selected} onSelect={onSelect} />
+    <span className="font-num">{fmtLap(row.lastLap?.lap_duration)}</span>
+    <span className="font-num" style={{ color: row.isOverallBestLap ? 'var(--sector-purple)' : 'var(--foreground)' }}>{fmtLap(row.bestLapDuration)}</span>
+    <span className="font-num" style={{ color: 'var(--foreground)' }}>{fmtGap(row.interval)}</span>
+    <span className="font-num" style={{ color: 'var(--muted)' }}>{fmtGap(row.gapToLeader)}</span>
+    {[0, 1, 2].map(i => <div key={i} style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }} title={row.sectors[i]?.previous ? `Previous: ${row.sectors[i].previous}` : undefined}>
+      <SectorCell sector={row.sectors[i]} />
+      {row.miniSectors[i]?.length > 0 && <div aria-hidden style={{ display: 'flex', height: 4, gap: 1 }}>{row.miniSectors[i].map((state, j) => <span key={j} style={{ flex: 1, background: SEGMENT_COLORS[state] }} />)}</div>}
+    </div>)}
+    <TyreDot compound={row.compound} age={row.tyreAge} startAge={row.tyreStartAge} />
+    <span className="font-num" title={`${row.lapsDone} laps completed · ${row.pitStops} pit stops`} style={{ color: 'var(--muted)', textAlign: 'center' }}>{row.lapsDone || '—'}</span>
+  </motion.div>
+}
+
 const TOWER_GRID = '36px minmax(100px,1.1fr) 60px 60px 76px 76px minmax(174px,2.1fr) 42px 48px 56px'
 /** Stints view: the timeline takes everything the timing columns gave back. */
 const STINT_GRID = '36px minmax(100px,1.1fr) 60px 60px 42px 48px 56px minmax(190px,3fr)'
@@ -195,7 +222,7 @@ function CutLine({ label, eliminated, cutOffTime, active }: {
   )
 }
 
-function TowerRowView({ row, index, view, maxStintLaps, phone, expanded }: { row: TowerRow; index: number; view: TowerView; maxStintLaps: number; phone: boolean; expanded: boolean }) {
+function TowerRowView({ row, index, view, maxStintLaps, phone, expanded, selected = false, onSelect }: { row: TowerRow; index: number; view: TowerView; maxStintLaps: number; phone: boolean; expanded: boolean; selected?: boolean; onSelect?: (id: number) => void }) {
   const color = row.driver.team_colour ? `#${row.driver.team_colour.replace('#', '')}` : '#555'
   const leader = row.position === 1
   const grid = phone
@@ -208,6 +235,7 @@ function TowerRowView({ row, index, view, maxStintLaps, phone, expanded }: { row
       animate={{ opacity: 1, x: 0 }}
       transition={{ layout: { type: 'spring', stiffness: 350, damping: 32 } }}
       className="tower-row"
+      data-selected={selected}
       style={{
         display: 'grid',
         opacity: row.knockedOut ? 0.42 : 1,
@@ -220,7 +248,7 @@ function TowerRowView({ row, index, view, maxStintLaps, phone, expanded }: { row
         rowGap: phone ? '6px' : undefined,
         padding: phone ? '9px 10px' : '11px 12px',
         borderBottom: '1px solid rgba(255,255,255,0.05)',
-        background: leader ? 'linear-gradient(90deg, rgba(255,215,0,0.06), transparent 55%)' : 'transparent',
+        background: selected ? 'rgba(101,217,255,.10)' : leader ? 'linear-gradient(90deg, rgba(255,215,0,0.06), transparent 55%)' : 'transparent',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: phone ? '2px' : '5px', minWidth: 0 }}>
@@ -232,7 +260,7 @@ function TowerRowView({ row, index, view, maxStintLaps, phone, expanded }: { row
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
         <span style={{ width: '4px', height: '20px', background: color, borderRadius: '2px', flexShrink: 0, boxShadow: `0 0 8px ${color}66` }} />
-        <span className="font-display" style={{ fontWeight: 700, fontSize: phone ? '14px' : '15.5px', letterSpacing: '0.02em' }}>{row.driver.name_acronym}</span>
+        {onSelect ? <DriverChip row={row} selected={selected} onSelect={onSelect} /> : <span className="font-display" style={{ fontWeight: 700, fontSize: phone ? '14px' : '15.5px', letterSpacing: '0.02em' }}>{row.driver.name_acronym}</span>}
         {/* Measured at 375px the team name got a 47px box — "Red Bull Racing"
             rendered as "Red B…", which is noise, not information. The colour
             bar to its left already identifies the team, so on a phone the name
@@ -351,7 +379,7 @@ function PhoneStat({ label, value, color }: { label: string; value: string; colo
 
 /** Header row + rows + qualifying cut lines. */
 export default function TimingTower({
-  rows, view, qualifying, emptyMessage, expanded = false,
+  rows, view, qualifying, emptyMessage, expanded = false, broadcast = false, selectedDriver = null, onSelectDriver,
 }: {
   rows: TowerRow[]
   view: TowerView
@@ -359,9 +387,13 @@ export default function TimingTower({
   emptyMessage: string
   /** Full-page tower. Mini-sectors are only drawn here — see COLLAPSED_TOWER_GRID. */
   expanded?: boolean
+  broadcast?: boolean
+  selectedDriver?: number | null
+  onSelectDriver?: (id: number) => void
 }) {
   const phone = useIsPhone()
-  const timingGrid = expanded ? TOWER_GRID : COLLAPSED_TOWER_GRID
+  const compact = broadcast && !phone && view === 'timing'
+  const timingGrid = compact ? BROADCAST_GRID : expanded ? TOWER_GRID : COLLAPSED_TOWER_GRID
   // One horizontal scale for every stint bar, so rows stay comparable.
   const maxStintLaps = Math.max(
     1,
@@ -384,12 +416,12 @@ export default function TimingTower({
             gridTemplateColumns: phone
               ? (view === 'timing' ? PHONE_TOWER_GRID : PHONE_STINT_GRID)
               : (view === 'timing' ? timingGrid : STINT_GRID),
-            gap: phone ? '4px' : '7px', padding: phone ? '10px 10px' : '11px 12px',
+            gap: phone ? '4px' : compact ? '6px' : '7px', padding: phone ? '10px 10px' : compact ? '10px' : '11px 12px',
             borderBottom: '1px solid rgba(255,255,255,0.09)',
             fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--muted)',
           }}
         >
-          <span>POS</span><span>DRIVER</span><span>GAP</span><span>INT</span>
+          {compact ? <><span>P</span><span>DRIVER</span><span>LAST</span><span>BEST</span><span>INT</span><span>GAP</span><span>S1</span><span>S2</span><span>S3</span><span>TYRE</span><span>LAP</span></> : <><span>POS</span><span>DRIVER</span><span>GAP</span><span>INT</span>
           {view === 'timing' && !phone && (
             expanded
               ? <><span>LAST LAP</span><span>BEST LAP</span><span>MINI-SECTORS</span></>
@@ -399,6 +431,7 @@ export default function TimingTower({
           {!phone && <span style={{ textAlign: 'center' }}>PIT</span>}
           <span>TYRE</span>
           {view === 'stints' && !phone && <span>STINTS</span>}
+          </>}
         </div>
 
         {rows.length === 0 ? (
@@ -406,7 +439,9 @@ export default function TimingTower({
             {emptyMessage}
           </div>
         ) : rows.flatMap((row, i) => {
-          const node = <TowerRowView key={row.driver.driver_number} row={row} index={i} view={view} maxStintLaps={maxStintLaps} phone={phone} expanded={expanded} />
+          const node = compact
+            ? <BroadcastRow key={row.driver.driver_number} row={row} index={i} selected={selectedDriver === row.driver.driver_number} onSelect={onSelectDriver} />
+            : <TowerRowView key={row.driver.driver_number} row={row} index={i} view={view} maxStintLaps={maxStintLaps} phone={phone} expanded={expanded} selected={selectedDriver === row.driver.driver_number} onSelect={onSelectDriver} />
           // A cut sits *after* the nth car, so check the 1-based index.
           const cutIdx = qualifying?.cutPositions.indexOf(i + 1) ?? -1
           if (cutIdx < 0) return [node]

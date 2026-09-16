@@ -82,3 +82,15 @@ test('stopped probes cannot publish a late recovery', async () => {
   resolveProbe(true)
   await new Promise(resolve => setImmediate(resolve))
 })
+
+test('healthy health but busy endpoints cannot create a tight recovery loop', async () => {
+  let calls = 0
+  const monitor = createRecovery({ probe: async () => { calls++; return true }, recovered: () => {}, unavailable: () => {}, cooldownMs: 40 })
+  monitor.start()
+  await new Promise(resolve => setImmediate(resolve))
+  for (let i = 0; i < 10; i++) monitor.start()
+  assert.equal(calls, 1)
+  await new Promise(resolve => setTimeout(resolve, 60))
+  assert.equal(calls, 2)
+  monitor.stop()
+})

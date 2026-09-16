@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+const { createJiti } = require('jiti')
+const jiti = createJiti(import.meta.url)
+const { angleDelta, sampleMotion, nextMotion, cameraPoint } = jiti('../lib/tactical/liveCamera.ts')
+assert.equal(angleDelta(179, -179), 2)
+assert.equal(angleDelta(-179, 179), -2)
+const first = nextMotion(undefined, { x: 10, y: 20 }, 0, 1000)
+assert.deepEqual(sampleMotion(first, 500), { x: 10, y: 20, heading: 0 })
+const second = nextMotion(first, { x: 110, y: 20 }, 1000, 1000)
+assert.equal(sampleMotion(second, 1500).x, 60)
+assert.equal(sampleMotion(second, 3000).x, 110, 'never extrapolate beyond received position')
+const interrupted = nextMotion(second, { x: 210, y: 20 }, 1500, 1000)
+assert.equal(sampleMotion(interrupted, 1500).x, 60, 'smooth interruption starts at displayed pose')
+const wrap = { from: { x: 0, y: 0, heading: 179 }, to: { x: 1, y: 0, heading: -179 }, start: 0, duration: 1000 }
+assert.equal(sampleMotion(wrap, 500).heading, 180)
+assert.deepEqual(cameraPoint([30, 40], [30, 40], -90, 2), [200, 170], 'target remains centered')
+const east = cameraPoint([40, 40], [30, 40], -90, 2)
+assert.ok(Math.abs(east[0] - 200) < 0.001 && east[1] < 170, 'eastward motion points up in chase')
+const north = cameraPoint([30, 30], [30, 40], 0, 2)
+assert.equal(north[1], 150)
+console.log('PASS live camera: interpolation, interruption, no extrapolation, shortest heading and chase projection')

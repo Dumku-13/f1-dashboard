@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict'
+import { createJiti } from 'jiti'
+const jiti = createJiti(import.meta.url)
+const { appendTrail, geographicHeading, matchDriver, shortestAngle, telemetryColor, validGeoFix, MAX_TRAIL_SAMPLES } = await jiti.import('../lib/tactical/camera.ts')
+const fix = (timestamp, lng = 4.54, lat = 52.38) => ({ id: 3, name: 'Max Verstappen', acronym: 'VER', lng, lat, timestamp })
+assert.equal(shortestAngle(359, 1), 2)
+assert.equal(shortestAngle(1, 359), -2)
+assert.equal(shortestAngle(-721, 1), 2)
+assert.equal(geographicHeading(fix(0), fix(1)), null)
+assert.equal(geographicHeading(fix(0), fix(1, 4.54, 52.39)), 0)
+assert.ok(Math.abs(geographicHeading(fix(0), fix(1, 4.55)) - 90) < 0.01)
+assert.equal(validGeoFix(fix(0, 600)), false)
+assert.equal(validGeoFix(fix(NaN)), false)
+assert.equal(validGeoFix(fix(0, null)), false)
+assert.equal(telemetryColor({}), '#8ca2b4')
+assert.equal(telemetryColor({ throttle: NaN }), '#8ca2b4')
+assert.equal(telemetryColor({ throttle: 100 }), '#58ff9b')
+assert.equal(telemetryColor({ throttle: 100, brake: true }), '#ff4b4b')
+assert.equal(telemetryColor({ brake: 100 }), '#ff4b4b')
+const prior = [fix(1000), fix(2000)]
+assert.deepEqual(appendTrail(prior, fix(1500)), [fix(1500)], 'backward seeks reset history')
+assert.equal(appendTrail(prior, fix(2000)), prior, 'duplicate frames do not grow memory')
+assert.deepEqual(appendTrail(prior, fix(15000)), [fix(15000)], 'long gaps do not draw stale ribbons')
+let trail = []
+for (let i = 0; i < 1000; i++) trail = appendTrail(trail, fix(i))
+assert.equal(trail.length, MAX_TRAIL_SAMPLES)
+const roster = [fix(0), { ...fix(0), id: 1, name: 'Lando Norris', acronym: 'NOR' }]
+assert.equal(matchDriver(roster, 'Max Verstappen').id, 3, 'resolve actual roster, never assume car 1')
+assert.equal(matchDriver(roster, 'car 1').acronym, 'NOR')
+assert.equal(matchDriver(roster, 'Verstappen').id, 3)
+assert.equal(matchDriver(roster, ''), undefined)
+assert.equal(matchDriver([...roster, { ...fix(0), id: 99, name: 'Max Example' }], 'Max'), undefined, 'ambiguous names do not lock a random driver')
+console.log('Tactical camera: heading wrap, data honesty, bounded trails, replay seek and roster matching passed.')

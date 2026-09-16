@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Radio, Send, Satellite, Terminal } from 'lucide-react'
 import { BACKEND_URL } from '@/lib/constants'
 import { fetchChallenge, powHeader, solveChallenge, usePow } from '@/lib/pow'
+import VoiceEngineer from '@/components/tactical/VoiceEngineer'
 
 const HISTORY_KEY = 'f1.engineer.history'
 const MAX_STORED_MESSAGES = 40
@@ -193,6 +194,7 @@ export default function EngineerChat({ compact = false }: { compact?: boolean })
         minHeight: 0,
       }}
     >
+      <VoiceEngineer />
       {/* Header / badge */}
       <div
         style={{

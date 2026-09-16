@@ -29,6 +29,7 @@ export default function BackendOfflineBanner() {
         <div>
           <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{title}</p>
           <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{detail}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>Telemetry and authenticated features require the live service. Saved core data is labelled separately.</p>
         </div>
       </div>
       <button onClick={retryBackendConnection} aria-label="Retry data connection" className="backend-connection-button">

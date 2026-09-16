@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { createJiti } from 'jiti'
+const jiti=createJiti(import.meta.url)
+const { alignTrack,applyAlignment,findCircuit,checkAlignment }=await jiti.import('../lib/tactical/geography.ts')
+const { terrariumHeight,decodeTerrain }=await jiti.import('../lib/tactical/terrain.ts')
+const circuits=JSON.parse(readFileSync(new URL('../public/tactical/circuits.geojson',import.meta.url))).features
+const circuit=findCircuit(circuits,'Sakhir')
+assert.ok(circuit)
+assert.ok(findCircuit(circuits,'Spa-Francorchamps'))
+assert.equal(findCircuit(circuits,'not a real circuit'),undefined)
+const fixture=JSON.parse(readFileSync(new URL('../fixtures/tactical-bahrain-geography.json',import.meta.url)))
+const points=fixture.data.drivers.flatMap(d=>d.fixes)
+console.time('real alignment')
+const fit=alignTrack(points,circuit)
+console.timeEnd('real alignment')
+console.log(fit)
+assert.equal(fit?.accepted,true,'real Bahrain positions match geographic circuit')
+assert.ok(fit.rms<18 && fit.p95<40 && fit.coverage>=.85)
+const geo=applyAlignment(points[0],fit)
+assert.ok(geo.lng>50 && geo.lng<51 && geo.lat>25 && geo.lat<27)
+assert.equal(checkAlignment(points.map(p=>({x:p.x+10000,y:p.y-3000})),circuit,fit).accepted,false,'changed coordinate frame is rejected')
+assert.equal(alignTrack(points.slice(0,2),circuit),null,'insufficient reference coverage')
+const wrong=alignTrack(points,findCircuit(circuits,'Monza'))
+assert.equal(wrong?.accepted,false,'wrong circuit rejected')
+assert.equal(terrariumHeight(128,0,0),0)
+assert.equal(terrariumHeight(128,100,128),100.5)
+assert.equal(terrariumHeight(127,255,0),-1)
+const rgba=new Uint8ClampedArray(256*256*4)
+for(let i=0;i<rgba.length;i+=4){rgba[i]=128;rgba[i+1]=100;rgba[i+3]=255}
+assert.ok(decodeTerrain(rgba).every(h=>h===100))
+assert.throws(()=>decodeTerrain(new Uint8ClampedArray(256*256*4)),/Missing/)
+console.log('PASS real geometry alignment, coverage/error gates, wrong circuit, coordinate changes, terrain decoding')

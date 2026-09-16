@@ -17,7 +17,11 @@
  * it must stay out of the critical path.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { Map as LibreMap, Marker, GeoJSONSource } from 'maplibre-gl'
+import { appendTrail, geographicHeading, matchDriver, shortestAngle, telemetryColor, validGeoFix } from '../../lib/tactical/camera'
+import type { CameraMode, TacticalDriver } from '../../lib/tactical/camera'
+import { mapLibreEngine } from '../../lib/tactical/mapEngine'
 
 export interface MapCircuit {
   key: string
@@ -62,17 +66,61 @@ const SATELLITE_STYLE = {
   ],
 }
 
-export default function CircuitMap3D({ circuit }: { circuit: MapCircuit | null }) {
+const NO_DRIVERS: TacticalDriver[] = []
+
+export default function CircuitMap3D({ circuit, drivers = NO_DRIVERS, selectedDriver, onSelectDriver }: {
+  circuit: MapCircuit | null
+  drivers?: TacticalDriver[]
+  selectedDriver?: number | null
+  onSelectDriver?: (id: number) => void
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
-  // `any` because maplibre-gl is imported dynamically; importing its types
-  // eagerly would defeat the point of code-splitting it.
-  const mapRef = useRef<any>(null)
-  const markerRef = useRef<any>(null)
+  // Type-only imports are erased and preserve dynamic code splitting.
+  const mapRef = useRef<LibreMap | null>(null)
+  const markerRef = useRef<Marker | null>(null)
+  const driverMarkers = useRef(new Map<number, Marker>())
+  const trails = useRef(new Map<number, TacticalDriver[]>())
+  const bearing = useRef(0)
+  const [ready, setReady] = useState(false)
+  const [failure, setFailure] = useState(false)
+  const [mode, setMode] = useState<CameraMode>('free')
+  const [lockedDriver, setLockedDriver] = useState<number | null>(selectedDriver ?? null)
+  const latest = useRef({ drivers, onSelectDriver })
+  latest.current = { drivers, onSelectDriver }
+  const initialCircuit = useRef(circuit)
+  initialCircuit.current = circuit
+  const hasCircuit = Boolean(circuit)
+
+  useEffect(() => {
+    if (selectedDriver === undefined) return
+    setLockedDriver(selectedDriver)
+    setMode(selectedDriver == null ? 'free' : 'follow')
+  }, [selectedDriver])
+
+  useEffect(() => {
+    if (mode === 'free' && latest.current.drivers.length) mapRef.current?.stop()
+  }, [mode])
+
+  useEffect(() => { bearing.current = mapRef.current?.getBearing() ?? 0 }, [lockedDriver])
+
+  useEffect(() => {
+    const command = (event: Event) => {
+      const detail = (event as CustomEvent).detail
+      if (detail?.type === 'camera' && ['free', 'follow', 'chase'].includes(detail.mode)) setMode(detail.mode)
+      if (detail?.type === 'track-driver' && typeof detail.query === 'string') {
+        const driver = matchDriver(latest.current.drivers, detail.query)
+        if (driver) { setLockedDriver(driver.id); setMode('follow'); latest.current.onSelectDriver?.(driver.id) }
+      }
+    }
+    window.addEventListener('f1:tactical-command', command)
+    return () => window.removeEventListener('f1:tactical-command', command)
+  }, [])
 
   // Create the map once.
   useEffect(() => {
     let cancelled = false
-    if (!containerRef.current || mapRef.current || !circuit) return
+    const start = initialCircuit.current
+    if (!containerRef.current || mapRef.current || !start) return
 
     ;(async () => {
       try {
@@ -91,7 +139,7 @@ export default function CircuitMap3D({ circuit }: { circuit: MapCircuit | null }
       const map = new maplibregl.Map({
         container: containerRef.current,
         style: SATELLITE_STYLE,
-        center: [circuit.lng, circuit.lat],
+        center: [start.lng, start.lat],
         zoom: 13.4,
         pitch: 48,
         bearing: -18,
@@ -105,33 +153,108 @@ export default function CircuitMap3D({ circuit }: { circuit: MapCircuit | null }
         'width:14px;height:14px;border-radius:50%;background:var(--accent);' +
         'border:2px solid #fff;box-shadow:0 0 0 4px rgba(225,6,0,0.35)'
       markerRef.current = new maplibregl.Marker({ element: el })
-        .setLngLat([circuit.lng, circuit.lat])
+        .setLngLat([start.lng, start.lat])
         .addTo(map)
 
       map.on('error', (e: any) => console.error('[map] maplibre:', e?.error?.message || e))
+      map.on('dragstart', () => setMode('free'))
+      map.on('load', () => {
+        if (cancelled) return
+        map.addSource('driver-trails', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+        map.addLayer({ id: 'driver-trail-glow', type: 'line', source: 'driver-trails',
+          paint: { 'line-color': ['get', 'color'], 'line-width': 10, 'line-blur': 5, 'line-opacity': 0.4 } })
+        map.addLayer({ id: 'driver-trail-line', type: 'line', source: 'driver-trails',
+          paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': 0.9 } })
+        setReady(true)
+      })
       mapRef.current = map
       } catch (err) {
         // An async IIFE swallows anything thrown in here, which is how a map
         // that never appeared produced no error at all.
         console.error('[map] failed to initialise:', err)
+        if (!cancelled) setFailure(true)
       }
     })()
 
     return () => {
       cancelled = true
+      driverMarkers.current.forEach(marker => marker.remove())
+      driverMarkers.current.clear()
+      trails.current.clear()
+      markerRef.current?.remove()
+      markerRef.current = null
       mapRef.current?.remove()
       mapRef.current = null
+      setReady(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [hasCircuit])
 
   // Fly to the selected circuit.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !circuit) return
-    map.flyTo({ center: [circuit.lng, circuit.lat], zoom: 13.4, pitch: 48, duration: 2200, essential: true })
+    trails.current.clear()
+    setMode(selectedDriver == null ? 'free' : 'follow')
+    setLockedDriver(selectedDriver ?? null)
+    map.flyTo({ center: [circuit.lng, circuit.lat], zoom: 13.4, pitch: 48, duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 2200 })
     markerRef.current?.setLngLat([circuit.lng, circuit.lat])
-  }, [circuit?.key, circuit?.lat, circuit?.lng]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, circuit?.key, circuit?.lat, circuit?.lng]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} aria-label="Circuit location map" />
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    let cancelled = false
+    void import('maplibre-gl').then(({ Marker }) => {
+      if (cancelled) return
+      const ids = new Set<number>()
+      const features: GeoJSON.Feature<GeoJSON.LineString>[] = []
+      for (const driver of drivers.filter(validGeoFix)) {
+        ids.add(driver.id)
+        const previous = trails.current.get(driver.id) ?? []
+        if (driver.id === lockedDriver && previous.length && driver.timestamp < previous[previous.length - 1].timestamp) bearing.current = 0
+        const history = appendTrail(previous, driver)
+        trails.current.set(driver.id, history)
+        for (let i = 1; i < history.length; i++) features.push({ type: 'Feature', properties: { color: telemetryColor(history[i]) },
+          geometry: { type: 'LineString', coordinates: [[history[i - 1].lng, history[i - 1].lat], [history[i].lng, history[i].lat]] } })
+        let marker = driverMarkers.current.get(driver.id)
+        if (!marker) {
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.style.cssText = 'min-width:34px;height:30px;border-radius:4px;background:#08111ddd;color:#fff;font:700 10px monospace;cursor:pointer;box-shadow:0 0 14px #00e0b533'
+          button.onclick = () => { setLockedDriver(driver.id); setMode('follow'); latest.current.onSelectDriver?.(driver.id) }
+          marker = new Marker({ element: button }).setLngLat([driver.lng, driver.lat]).addTo(map)
+          driverMarkers.current.set(driver.id, marker)
+        }
+        marker.setLngLat([driver.lng, driver.lat])
+        const element = marker.getElement()
+        element.textContent = driver.acronym
+        element.setAttribute('aria-label', `Track ${driver.name}`)
+        element.style.border = `2px solid ${driver.id === lockedDriver ? '#fff' : driver.color ?? '#65e6d2'}`
+      }
+      for (const [id, marker] of driverMarkers.current) if (!ids.has(id)) { marker.remove(); driverMarkers.current.delete(id); trails.current.delete(id) }
+      ;(map.getSource('driver-trails') as GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features })
+      const target = drivers.find(d => d.id === lockedDriver && validGeoFix(d))
+      const engine = mapLibreEngine(map)
+      if (mode === 'free') return
+      if (!target) { engine.release(); return }
+      const history = trails.current.get(target.id) ?? []
+      const heading = history.length > 1 ? geographicHeading(history[history.length - 2], target) : null
+      if (heading != null) bearing.current += shortestAngle(bearing.current, heading)
+      engine.follow({ ...target, bearing: bearing.current, mode }, window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    })
+    return () => { cancelled = true }
+  }, [drivers, ready, mode, lockedDriver])
+
+  return <>
+    <div ref={containerRef} className="ops-map-surface" data-camera-mode={mode} style={{ position: 'absolute', inset: 0 }} aria-label="Circuit location map" />
+    {failure && <div role="status" style={{ position: 'absolute', bottom: 36, left: 12, color: '#fff', background: '#09121d', padding: 10 }}>Satellite renderer unavailable. Use the local track view.</div>}
+    {drivers.length > 0 && <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      {(['free', 'follow', 'chase'] as const).map(value => <button key={value} type="button" aria-pressed={mode === value} disabled={value !== 'free' && lockedDriver == null}
+        onClick={() => setMode(value)} style={{ background: mode === value ? '#175b51' : '#07111de6', color: '#e5fff8', border: '1px solid #56877e', borderRadius: 3, padding: '8px 10px', font: '600 10px monospace', cursor: 'pointer' }}>{value === 'chase' ? 'CHASE CAM' : value.toUpperCase()}</button>)}
+      <button type="button" onClick={() => { setMode('free'); if (circuit) mapRef.current?.jumpTo({ center: [circuit.lng, circuit.lat], zoom: 13.4, pitch: 48, bearing: -18 }) }}
+        style={{ background: '#07111de6', color: '#e5fff8', border: '1px solid #56877e', borderRadius: 3, padding: '8px 10px', font: '600 10px monospace', cursor: 'pointer' }}>RESET VIEW</button>
+      <span role="status" style={{ width: '100%', font: '10px monospace', color: '#e5fff8', background: '#07111de6', padding: 5 }}>{lockedDriver == null ? 'SELECT A DRIVER TO LOCK' : `${mode.toUpperCase()} · CAR ${lockedDriver}`} · TRAILS: THROTTLE / BRAKE / GREY UNKNOWN</span>
+    </div>}
+  </>
 }

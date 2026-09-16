@@ -17,6 +17,7 @@ import SessionClock from '@/components/live/SessionClock'
 import EngineerDock from '@/components/engineer/EngineerDock'
 import { Thermometer, Wind, Droplets, Bell, Clock, Maximize2, Minimize2 } from 'lucide-react'
 import LastUpdated from '@/components/ui/LastUpdated'
+import styles from './live.module.css'
 
 /** Timing view: mini-sectors take the width the three sector columns used to. */
 function StatusBadge({ status }: { status: string }) {
@@ -48,6 +49,11 @@ export default function LivePage() {
   const [view, setView] = useState<TowerView>('timing')
   // Full-width tower: the side rail is what squeezes PIT/TYRE off-screen.
   const [expanded, setExpanded] = useState(false)
+  const [selectedDriver, setSelectedDriver] = useState<number | null>(null)
+  const sessionIdentity = `${session?.session_key ?? ''}:${session?.date_start ?? ''}`
+  useEffect(() => { setSelectedDriver(null) }, [sessionIdentity])
+  const selectedRow = rows.find(row => row.driver.driver_number === selectedDriver)
+  const trackLabel = ({ AllClear: 'Track clear', Yellow: 'Yellow flag', SCDeployed: 'Safety car', VSCDeployed: 'Virtual safety car', Red: 'Red flag' } as Record<string, string>)[trackStatus] || 'Track status unavailable'
 
   // Achievement hook: count distinct live sessions + weekends actually watched
   useEffect(() => {
@@ -64,16 +70,14 @@ export default function LivePage() {
     // map get better with every pixel. Padding, not a cap, keeps it off the
     // edges. Other routes keep the DESIGN.md cap — don't sweep this across them
     // without checking each one actually has something to do with the width.
-    <div style={{ width: '100%', margin: '0 auto', padding: '24px clamp(16px, 1.6vw, 34px)', position: 'relative', zIndex: 1 }}>
+    <div className={styles.root}>
 
       {/* Phase 11: in-app alert toasts (top-left; achievements own top-right) */}
       <AlertToaster />
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-strong"
-        style={{ padding: '24px 28px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px' }}
+        initial={false}
+        className={styles.sessionHeader}
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
@@ -82,7 +86,7 @@ export default function LivePage() {
               <span className="font-num" style={{ fontSize: '12px', color: '#9CA3AF' }}>LAP {currentLap}</span>
             )}
           </div>
-          <h1 className="display-title" style={{ fontSize: 'clamp(26px, 4.5vw, 42px)', margin: 0 }}>
+          <h1 style={{ fontSize: 'clamp(22px, 2.5vw, 32px)', fontWeight: 750, letterSpacing: '-.03em', margin: 0 }}>
             {session ? `${session.country_name} — ${session.session_name}` : 'Live Timing'}
           </h1>
           <div style={{ fontSize: '12px', color: '#9CA3AF', marginTop: '6px' }}>
@@ -97,7 +101,7 @@ export default function LivePage() {
           </div>
 
           {/* Phase 11: alert bell (opens settings) + pop-out widget buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', flexWrap: 'wrap', position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', flexWrap: 'wrap', position: 'relative' }}>
             <button
               onClick={() => setAlertsOpen(o => !o)}
               title="Custom alerts"
@@ -151,6 +155,8 @@ export default function LivePage() {
           </div>
         </div>
 
+        <div className={styles.conditions}>
+          <span className={styles.trackFlag} data-status={trackStatus}>{trackLabel}</span>
         {weather && (
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {[
@@ -159,7 +165,7 @@ export default function LivePage() {
               { Icon: Wind, label: 'WIND', val: weather.wind_speed != null ? `${weather.wind_speed} m/s` : '—' },
               { Icon: Droplets, label: 'RAIN', val: weather.rainfall ? 'YES' : 'NO' },
             ].map((w, i) => (
-              <div key={i} className="glass-panel" style={{ borderRadius: '12px', padding: '8px 14px', textAlign: 'center' }}>
+              <div key={i} style={{ padding: '6px 10px', textAlign: 'center', borderLeft: '1px solid #2c3947' }}>
                 <w.Icon size={13} style={{ color: '#9CA3AF' }} />
                 <div className="font-num" style={{ fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>{w.val}</div>
                 <div style={{ fontSize: '9px', color: 'var(--muted)', letterSpacing: '0.1em' }}>{w.label}</div>
@@ -167,11 +173,12 @@ export default function LivePage() {
             ))}
           </div>
         )}
+        </div>
       </motion.div>
 
       {status === 'error' && (
         <div className="glass-card" style={{ padding: '40px', textAlign: 'center', color: '#9CA3AF', fontSize: '13px' }}>
-          Couldn&apos;t reach the OpenF1 live feed. Check your connection and refresh.
+          Timing is unavailable. Check the backend connection; the feed will retry automatically. <a href="/tactical">Replay a past race</a> while waiting.
         </div>
       )}
 
@@ -181,18 +188,9 @@ export default function LivePage() {
         </div>
       )}
 
+      {live.delayBuffering && <p role="status" className={styles.notice}>Filling your broadcast-delay buffer. Timing and tracking will appear together.</p>}
       <div
-        style={{
-          display: 'grid',
-          // Collapsed, the tower now shows three fixed sector columns instead
-          // of the greedy `2.1fr` mini-sector bars, so it needs less room —
-          // and the rail gets it. 2.2/1 -> 1.55/1 with a 330px floor makes the
-          // track map about a quarter wider, which is what makes the driver
-          // labels on it readable.
-          gridTemplateColumns: expanded ? 'minmax(0, 1fr)' : 'minmax(0, 1.55fr) minmax(330px, 1fr)',
-          gap: '16px', alignItems: 'start',
-        }}
-        className="live-grid"
+        className={styles.broadcast}
         data-expanded={expanded ? 'true' : 'false'}
       >
         {/* Timing tower */}
@@ -206,7 +204,7 @@ export default function LivePage() {
             }}
           >
             <span className="font-display" style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', marginRight: 'auto' }}>
-              Leaderboard
+              Timing tower
             </span>
             <button
               onClick={() => setExpanded(e => !e)}
@@ -249,7 +247,11 @@ export default function LivePage() {
             qualifying={qualifying}
             emptyMessage={status === 'loading' ? 'Connecting to timing feed…' : 'Waiting for cars on track…'}
             expanded={expanded}
+            broadcast
+            selectedDriver={selectedDriver}
+            onSelectDriver={setSelectedDriver}
           />
+          <div className={styles.selection} role="status">{selectedRow ? `Tracking ${selectedRow.driver.full_name || selectedRow.driver.name_acronym} · choose Follow or Chase on the map` : 'Select a driver to track their car'}</div>
         </div>
 
         {/* The rail stays mounted when the tower expands — it moves BELOW
@@ -262,16 +264,18 @@ export default function LivePage() {
             under the tower on its own; the only change needed is the internal
             layout — a vertical stack in a narrow rail, a responsive row across
             the full width. */}
-        <div style={expanded
-          ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', alignItems: 'start' }
-          : { display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className={styles.rail}>
           {/* Top of the rail: mid-session the first thing you want is how long
               is left, and off-session, when the next one starts. */}
-          <SessionClock session={session} live={status === 'live'} />
-          <TrackMap rows={rows} live={status === 'live'} trackStatus={trackStatus} />
-          <BenchmarksPanel session={session} rows={rows} />
-          <RaceControlFeed key={`${session?.session_key}-${session?.date_start}`} items={raceControl} />
-          <TeamRadioPanel clips={live.teamRadio} rows={rows} />
+          <TrackMap rows={rows} live={status === 'live' && !live.delayBuffering} trackStatus={trackStatus} selectedDriver={selectedDriver} onSelectDriver={setSelectedDriver} sessionKey={sessionIdentity} lastUpdate={lastUpdate} />
+          <div className={styles.support}>
+            <SessionClock session={session} live={status === 'live'} />
+            <BenchmarksPanel session={session} rows={rows} />
+          </div>
+          <div className={styles.messages}>
+            <RaceControlFeed key={sessionIdentity} items={raceControl} />
+            <TeamRadioPanel clips={live.teamRadio} rows={rows} />
+          </div>
         </div>
       </div>
 

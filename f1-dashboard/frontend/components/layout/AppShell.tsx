@@ -29,11 +29,13 @@ import LiveNowPill from '@/components/layout/LiveNowPill'
 import ThemeApplier from '@/components/layout/ThemeApplier'
 import AchievementToaster from '@/components/layout/AchievementToaster'
 import BackendOfflineBanner from '@/components/layout/BackendOfflineBanner'
+import SnapshotNotice from '@/components/layout/SnapshotNotice'
 import ScrollProgress from '@/components/ui/ScrollProgress'
 import BackToTop from '@/components/ui/BackToTop'
 import FloatingContact from '@/components/ui/FloatingContact'
 import StorageNotice from '@/components/ui/StorageNotice'
 import ThemeToggle from '@/components/ui/ThemeToggle'
+import OpsHud from '@/components/tactical/OpsHud'
 import { useSessionNotifications } from '@/lib/notify'
 import { useAttributionCapture } from '@/lib/utm'
 
@@ -124,7 +126,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
       <main id="main" style={{ paddingTop: bare ? '0' : '56px', paddingBottom: bare ? '0' : '120px' }}>
-        {children}
+        <SnapshotNotice />
+        <OpsHud enabled={!bare}>{children}</OpsHud>
       </main>
       {/* Two navigation bars, one visible at a time, chosen by CSS rather than
           by a hook — see MobileTabBar's header for why the swap can't be
