@@ -1,5 +1,7 @@
 .root {
+  --font-display: 'Archivo', system-ui, sans-serif;
   --foreground: #e9eef5;
+  --card: #151d26;
   --muted: #91a2b6;
   --background: #0d1218;
   --surface: #151d26;
@@ -10,23 +12,23 @@
   background: #0d1218; color: #e9eef5;
   position: relative; z-index: 1;
 }
-.root :global(.glass-card), .root :global(.glass-strong) { background: #151d26; border: 1px solid #2c3947; border-radius: 5px; box-shadow: none; }
-.sessionHeader { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; padding: 4px 2px 16px; margin-bottom: 12px; border-bottom: 1px solid #2c3947; }
+.root :global(.glass-card), .root :global(.glass-strong) { background: #151d26; border: 1px solid #2c3947; border-radius: 2px; box-shadow: none; }
+.sessionHeader { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 0 2px 10px; margin-bottom: 0; border-bottom: 1px solid #2c3947; }
 .conditions { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
 .trackFlag { padding: 6px 10px; background: #1b2735; color: #b8c8d9; font-size: 12px; border-radius: 3px; }
 .trackFlag[data-status='AllClear'] { background: #173b30; color: #89e5b3; }
 .trackFlag[data-status='Yellow'], .trackFlag[data-status='SCDeployed'], .trackFlag[data-status='VSCDeployed'] { background: #40371b; color: #ffe077; }
 .trackFlag[data-status='Red'] { background: #4b2328; color: #ff9b9e; }
-.broadcast { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(420px, 1fr); gap: 14px; align-items: start; }
+.broadcast { display: grid; grid-template-columns: minmax(780px, 1fr) minmax(310px, .42fr); gap: 10px; align-items: start; }
 .broadcast > *, .rail > *, .messages > *, .support > * { min-width: 0; }
 .broadcast[data-expanded='true'] { grid-template-columns: minmax(0, 1fr); }
 .rail { display: flex; flex-direction: column; gap: 12px; }
-.support, .messages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
-.selection { font-size: 11px; color: #a3b7cc; padding: 11px 14px; border-top: 1px solid #2c3947; background: #111923; }
+.support, .messages { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.selection { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 10px; color: #a3b7cc; padding: 8px 10px; border-top: 1px solid #2c3947; background: #111923; }
 .notice { font-size: 13px; color: #ebc977; padding: 12px; background: #302b20; }
 .root a { color: #a8d3ff; }
 .root button:focus-visible, .root select:focus-visible { outline: 2px solid #a8d3ff; outline-offset: 3px; }
-@media (max-width: 1199px) {
+@media (max-width: 1149px) {
   .broadcast { grid-template-columns: minmax(0, 1fr); }
   .conditions { align-items: flex-start; }
 }
@@ -34,3 +36,67 @@
   .messages, .support { grid-template-columns: minmax(0, 1fr); }
   .sessionHeader { gap: 12px; }
 }
+
+.eyebrow { margin: 0 0 6px; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+.sessionIdentity h1 { font-family: 'Archivo', sans-serif; text-transform: none; }
+.toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; margin-bottom: 8px; border-bottom: 1px solid var(--border); }
+.toolbar > button, .toolbar > label { min-height: 38px; border-radius: 2px !important; }
+.toolbar > label { padding-inline: 12px !important; }
+.toolbar select { min-height: 28px; }
+.sessionNote { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 14px; border-left: 2px solid var(--muted); background: var(--surface); font-size: 12px; color: var(--muted); }
+.sessionNote a { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; text-decoration: none; color: var(--foreground); }
+.metrics { display: grid; grid-template-columns: .85fr .65fr 1.2fr 1fr; border: 1px solid var(--border); background: var(--surface); margin-bottom: 14px; }
+.metrics > div { padding: 8px 12px; min-width: 0; }
+.metrics > div + div { border-left: 1px solid var(--border); }
+.metrics > div > span { display: block; color: var(--muted); font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 7px; }
+.metrics strong { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 19px; font-weight: 600; line-height: 1.2; letter-spacing: -.025em; }
+.metrics small { color: var(--muted); font-family: 'Archivo', sans-serif; font-size: 11px; font-weight: 400; letter-spacing: 0; }
+.towerPanel { overflow: hidden; border-top: 2px solid var(--accent) !important; }
+.towerToolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.towerToolbar > button { min-height: 36px; }
+.viewTabs { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--border); background: var(--background); }
+.viewTabs button { min-height: 32px; }
+.mapPanel :global(.track-map-canvas) { height: 280px; width: 100%; }
+.mapPanel[data-idle='true'] :global(.track-map-canvas) { height: 170px; }
+.support:empty, .messages:empty { display: none; }
+.lowerDeck { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 10px; align-items: start; margin-top: 10px; }
+.lowerDeck > * { min-width: 0; }
+.lowerDeck [aria-label='Scrollable Race Control feed'] { max-height: 260px; }
+.driverFocus { border: 1px solid var(--border); background: var(--surface); padding: 12px; }
+.driverFocus header { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.driverFocus header strong { color: #a8d3ff; }
+.driverFocus h2 { margin: 10px 0 2px; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+.driverFocus p { margin: 0 0 12px; color: var(--muted); font-size: 11px; }
+.driverFocus dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+.driverFocus dl > div { padding: 8px 0; border-top: 1px solid var(--border); }
+.driverFocus dt { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+.driverFocus dd { margin: 4px 0 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+.speedTraps, .tyreSummary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-top: 8px; font-size: 10px; color: var(--muted); border-top: 1px solid var(--border); }
+.speedTraps strong, .tyreSummary strong { color: var(--foreground); }
+.speedTraps small { margin-left: auto; }
+.tyreSummary { padding: 10px; }
+.tyreSummary > span { display: inline-flex; align-items: center; gap: 5px; }
+.tyreSummary i { width: 7px; height: 7px; border-radius: 50%; }
+.root :global(.font-num) { font-variant-numeric: tabular-nums; }
+.broadcast[data-expanded='true'] .rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+.root :global(.tower-head) { background: #111923; }
+.root :global(.tower-row):hover { background: #213040 !important; }
+.root [role='tabpanel']:focus-visible { outline: 2px solid #a8d3ff; outline-offset: -2px; }
+@media (max-width: 1149px) and (min-width: 701px) {
+  .rail, .broadcast[data-expanded='true'] .rail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .messages { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .messages > :only-child { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .broadcast[data-expanded='true'] .rail { display: flex; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics > div:nth-child(3) { border-left: 0; }
+  .metrics > div:nth-child(n+3) { border-top: 1px solid var(--border); }
+  .metrics strong { font-size: 19px; }
+  .sessionNote { font-size: 11px; }
+  .towerToolbar > span { width: 100%; }
+  .towerToolbar > button { margin-right: auto !important; }
+  .viewTabs button, .towerToolbar > button, .toolbar > button, .toolbar > label { min-height: 44px; }
+  .conditions { width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .root *, .root *::before, .root *::after { transition: none !important; } }

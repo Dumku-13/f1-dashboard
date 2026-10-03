@@ -17,7 +17,7 @@ import { useIsPhone } from '@/lib/breakpoint'
 
 export type TowerView = 'timing' | 'stints'
 
-const BROADCAST_GRID = '28px 68px minmax(65px,1fr) minmax(65px,1fr) minmax(57px,.85fr) minmax(57px,.85fr) repeat(3,minmax(60px,1fr)) 76px 28px'
+const BROADCAST_GRID = '24px 62px minmax(72px,1fr) minmax(72px,1fr) minmax(54px,.85fr) minmax(54px,.85fr) repeat(3,minmax(54px,1fr)) 76px 26px 26px'
 const SEGMENT_COLORS = { none: 'rgba(255,255,255,.12)', yellow: '#FFF200', green: 'var(--sector-green)', purple: 'var(--sector-purple)', pit: '#3B82F6' }
 
 function DriverChip({ row, selected, onSelect }: { row: TowerRow; selected: boolean; onSelect?: (id: number) => void }) {
@@ -28,7 +28,7 @@ function DriverChip({ row, selected, onSelect }: { row: TowerRow; selected: bool
 
 /** Compact broadcast row. Sector bars retain the feed's exact segment states. */
 function BroadcastRow({ row, index, selected, onSelect }: { row: TowerRow; index: number; selected: boolean; onSelect?: (id: number) => void }) {
-  return <motion.div layout="position" initial={false} className="tower-row" data-selected={selected} style={{ display: 'grid', gridTemplateColumns: BROADCAST_GRID, gap: 6, alignItems: 'center', minHeight: 42, padding: '5px 10px', borderBottom: '1px solid rgba(255,255,255,.07)', boxShadow: selected ? 'inset 3px 0 #65D9FF' : undefined, background: selected ? 'rgba(101,217,255,.10)' : index % 2 ? 'rgba(255,255,255,.025)' : 'transparent', opacity: row.knockedOut ? .45 : 1, fontSize: 12 }}>
+  return <motion.div layout="position" initial={false} className="tower-row" data-selected={selected} style={{ display: 'grid', gridTemplateColumns: BROADCAST_GRID, gap: 6, alignItems: 'center', minHeight: 34, padding: '3px 10px', borderBottom: '1px solid rgba(255,255,255,.07)', boxShadow: selected ? 'inset 3px 0 #65D9FF' : undefined, background: selected ? 'rgba(101,217,255,.10)' : index % 2 ? 'rgba(255,255,255,.025)' : 'transparent', opacity: row.knockedOut ? .45 : 1, fontSize: 12 }}>
     <span className="font-num" style={{ fontSize: 15, fontWeight: 800, color: row.position === 1 ? '#FFD700' : 'var(--foreground)' }}>{row.position ?? '—'}</span>
     <DriverChip row={row} selected={selected} onSelect={onSelect} />
     <span className="font-num">{fmtLap(row.lastLap?.lap_duration)}</span>
@@ -40,6 +40,7 @@ function BroadcastRow({ row, index, selected, onSelect }: { row: TowerRow; index
       {row.miniSectors[i]?.length > 0 && <div aria-hidden style={{ display: 'flex', height: 4, gap: 1 }}>{row.miniSectors[i].map((state, j) => <span key={j} style={{ flex: 1, background: SEGMENT_COLORS[state] }} />)}</div>}
     </div>)}
     <TyreDot compound={row.compound} age={row.tyreAge} startAge={row.tyreStartAge} />
+    <span className="font-num" style={{ textAlign: 'center', color: 'var(--muted)' }}>{row.pitStops}</span>
     <span className="font-num" title={`${row.lapsDone} laps completed · ${row.pitStops} pit stops`} style={{ color: 'var(--muted)', textAlign: 'center' }}>{row.lapsDone || '—'}</span>
   </motion.div>
 }
@@ -421,7 +422,7 @@ export default function TimingTower({
             fontSize: '11.5px', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--muted)',
           }}
         >
-          {compact ? <><span>P</span><span>DRIVER</span><span>LAST</span><span>BEST</span><span>INT</span><span>GAP</span><span>S1</span><span>S2</span><span>S3</span><span>TYRE</span><span>LAP</span></> : <><span>POS</span><span>DRIVER</span><span>GAP</span><span>INT</span>
+          {compact ? <><span>P</span><span>DRIVER</span><span>LAST</span><span>BEST</span><span>INT</span><span>GAP</span><span>S1</span><span>S2</span><span>S3</span><span>TYRE</span><span>PIT</span><span>LAP</span></> : <><span>POS</span><span>DRIVER</span><span>GAP</span><span>INT</span>
           {view === 'timing' && !phone && (
             expanded
               ? <><span>LAST LAP</span><span>BEST LAP</span><span>MINI-SECTORS</span></>

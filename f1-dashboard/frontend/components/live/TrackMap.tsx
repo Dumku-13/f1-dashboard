@@ -314,7 +314,8 @@ export default function TrackMap({ rows, live, trackStatus = '', focus = null, h
       </div>
       <div style={{ position: 'relative', flex: full ? 1 : undefined, minHeight: 0 }}>
         <svg
-          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+          className="track-map-canvas"
+            viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           style={full
             ? { width: '100%', height: '100%', display: 'block' }
             : { width: '100%', display: 'block' }}

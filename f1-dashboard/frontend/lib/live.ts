@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react'
 import { BACKEND_URL, OPENF1_URL } from './constants'
+import { fetchJson } from './api/transport'
 
 // Share the single resolver in lib/constants so the live bridge follows the
 // same localhost-vs-same-origin rule as every other fetch in the app.
@@ -949,11 +950,9 @@ function useLiveSessionRaw(): EngineState {
     let f1Meta: LiveSessionMeta | null = null
     const prevF1Positions = new Map<number, number>()
 
-    const pollF1 = async () => {
+    const pollF1 = async (initialData?: any) => {
       try {
-        const res = await fetch(`${BACKEND}/api/livetiming/state`, { cache: 'no-store' })
-        if (!res.ok) throw new Error(String(res.status))
-        const data = await res.json()
+        const data = initialData ?? await fetchJson<any>(`${BACKEND}/api/livetiming/state`)
         if (cancelled) return
         if (!data.active) {
           setState(prev => (prev.rows.length ? prev : {
@@ -1010,18 +1009,15 @@ function useLiveSessionRaw(): EngineState {
       }
     }
 
-    const bootF1 = async () => {
+    const bootF1 = async (initialData?: any) => {
       // `/session` is header metadata only — the tower, the map and every
       // number on the page come from `/state`. Awaiting it first put a full
       // external round trip (~500ms) in front of the first timing data purely
       // to fill in a title, so the two now run side by side.
       const meta = (async () => {
         try {
-          const res = await fetch(`${BACKEND}/api/livetiming/session`, { cache: 'no-store' })
-          if (res.ok) {
-            const info: F1SessionInfo = await res.json()
-            if (!info.error) f1Meta = f1MetaToSession(info)
-          }
+          const info = await fetchJson<F1SessionInfo>(`${BACKEND}/api/livetiming/session`)
+          if (!info.error) f1Meta = f1MetaToSession(info)
         } catch { /* header meta is optional */ }
         // Patch it in on arrival. `pollF1` only reads `f1Meta` when it runs, so
         // without this the header would stay blank until the next 4s poll.
@@ -1029,7 +1025,9 @@ function useLiveSessionRaw(): EngineState {
       })()
 
       if (cancelled) return
-      await Promise.all([meta, pollF1()])
+      // Optional metadata must not hold up the recurring timing updates.
+      void meta
+      await pollF1(initialData)
       if (!cancelled) f1Timer = setInterval(pollF1, F1_POLL)
     }
 
@@ -1049,20 +1047,21 @@ function useLiveSessionRaw(): EngineState {
      * SignalR client on demand, so the very first probe can legitimately say
      * inactive), or an off-season with nothing to relay.
      */
-    const bridgeIsActive = async (): Promise<boolean> => {
+    const readInitialBridge = async () => {
       try {
-        const res = await fetch(`${BACKEND}/api/livetiming/state`, { cache: 'no-store' })
-        if (!res.ok) return false
-        const data = await res.json()
-        return Boolean(data?.active)
+        // Bound the first probe so a sleeping host cannot indefinitely block
+        // the public-feed fallback. Reuse its payload instead of fetching twice.
+        const data = await fetchJson<any>(`${BACKEND}/api/livetiming/state`, 8_000)
+        return data?.active ? data : undefined
       } catch {
-        return false
+        return undefined
       }
     }
 
     const boot = async () => {
-      if (await bridgeIsActive()) {
-        if (!cancelled) await bootF1()
+      const initialBridge = await readInitialBridge()
+      if (initialBridge) {
+        if (!cancelled) await bootF1(initialBridge)
         return
       }
       if (cancelled) return
