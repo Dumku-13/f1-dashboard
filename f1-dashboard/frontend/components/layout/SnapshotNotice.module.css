@@ -1,0 +1,11 @@
+.notice { background: var(--surface); border-bottom: 1px solid var(--border); font-size: 12px; line-height: 1.6; }
+.notice details { max-width: 1560px; margin: 0 auto; padding: 0 clamp(16px, 2.2vw, 32px); }
+.notice summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--muted); }
+.notice summary strong { color: var(--foreground); font-weight: 500; }
+.notice summary span { float: right; }
+.notice summary::marker { color: var(--amber); }
+.notice summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sources { padding: 10px 0; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
+.sources span, .notice p { color: var(--muted); }
+.notice p { margin: 0; padding-bottom: 12px; }
+@media (max-width: 600px) { .notice summary { padding-block: 8px; } .notice summary span { float: none; display: block; padding-left: 14px; font-size: 11px; } }

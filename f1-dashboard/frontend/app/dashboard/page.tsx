@@ -21,6 +21,13 @@ const DriverIndex = dynamic(() => import('@/components/standings/DriverIndex'), 
   loading: () => <div className={styles.skeleton} style={{ height: 220 }} aria-label="Loading performance index" />,
 })
 const ease = [0.22, 1, 0.36, 1] as const
+const shortcuts = [
+  { href: '/dashboard', label: 'Overview', Icon: Flag },
+  { href: '/live', label: 'Live timing', Icon: Radio },
+  { href: '/analysis', label: 'Race analysis', Icon: LineChart },
+  { href: '/telemetry', label: 'Telemetry', Icon: Gauge },
+  { href: '/tactical', label: 'Tactical Ops', Icon: Crosshair },
+]
 
 const groups = [
   { name: 'Race day', description: 'Every angle of the weekend.', items: [
@@ -64,8 +71,8 @@ function Championship({ standings, loading, failed, retry }: { standings?: Stand
   const drivers = standings?.drivers ?? []
   const constructors = standings?.constructors ?? []
   const rows = tab === 'drivers'
-    ? drivers.slice(0, 5).map(d => ({ key: d.abbreviation, name: d.name, detail: d.team, points: d.points, position: d.position, color: hexColor(d.team_color) || TEAM_COLORS[d.team] || 'var(--muted)' }))
-    : constructors.slice(0, 5).map(t => ({ key: t.id, name: t.name, detail: `${t.wins} ${t.wins === 1 ? 'win' : 'wins'}`, points: t.points, position: t.position, color: hexColor(t.color) || TEAM_COLORS[t.name] || 'var(--muted)' }))
+    ? drivers.slice(0, 5).map(d => ({ key: d.abbreviation, name: d.name, detail: d.team, points: d.points, wins: d.wins, position: d.position, color: hexColor(d.team_color) || TEAM_COLORS[d.team] || 'var(--muted)' }))
+    : constructors.slice(0, 5).map(t => ({ key: t.id, name: t.name, detail: 'Constructor', points: t.points, wins: t.wins, position: t.position, color: hexColor(t.color) || TEAM_COLORS[t.name] || 'var(--muted)' }))
   const lead = rows[0]
   const photo = tab === 'drivers' ? getDriverTheme(drivers[0]?.name)?.image : null
   const gap = lead && rows[1] ? lead.points - rows[1].points : null
@@ -100,14 +107,15 @@ function Championship({ standings, loading, failed, retry }: { standings?: Stand
                 </div>
               </div>
               <div className={styles.order}>
-                <div className={styles.orderHead}><span>Classification</span><span>Points</span></div>
+                <div className={styles.orderHead}><span>Top five</span><span>To P1</span><span>Points</span></div>
                 <ol className={styles.orderList}>
                   {rows.map((row, index) => (
-                    <li key={row.key} className={styles.orderRow}>
+                    <li key={row.key} className={styles.orderRow} style={{ "--team": row.color } as CSSProperties}>
                       <span className={`${styles.position} font-num`}>{String(row.position).padStart(2, '0')}</span>
-                      <div className={styles.driverIdentity}><strong>{row.name}</strong><small>{row.detail}</small>
+                      <div className={styles.driverIdentity}><strong>{row.name}</strong><small>{row.detail} · {row.wins} {row.wins === 1 ? 'win' : 'wins'}</small>
                         <div className={styles.pointsTrack} aria-hidden="true"><motion.div style={{ background: row.color, transformOrigin: 'left', width: `${Math.max(0, row.points / Math.max(1, lead.points) * 100)}%` }} initial={{ scaleX: reduced ? 1 : 0 }} whileInView={{ scaleX: 1 }} viewport={{ once: true }} transition={{ duration: reduced ? 0 : 0.65, delay: reduced ? 0 : index * 0.06, ease }} /></div>
                       </div>
+                      <span className={`${styles.rowGap} font-num`} aria-label={`${Math.max(0, lead.points - row.points)} points behind leader`}>{row.points === lead.points ? '—' : `−${lead.points - row.points}`}</span>
                       <strong className={`${styles.rowPoints} font-num`}>{row.points}</strong>
                     </li>
                   ))}
@@ -176,8 +184,26 @@ export default function DashboardPage() {
 
   return (
     <div className={styles.page}>
-      <motion.header className={styles.header} initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} transition={{ duration: reduced ? 0 : 0.45 }}>
-        <div className={styles.headerCopy}><p className={styles.seasonLabel}><Flag size={15} aria-hidden="true" /> Formula 1 / {SEASON}</p><h1>Your pit wall.</h1><p className={styles.intro}>The weekend ahead. The fight so far. Your next move.</p></div>
+      <header className={styles.header}>
+        <img className={styles.heroImage} src="/hero/f001.webp" alt="" fetchPriority="high" />
+        <div className={styles.headerCopy}><p className={styles.seasonLabel}><Flag size={15} aria-hidden="true" /> Formula 1 / {SEASON} season <span className={styles.headerBadge} data-live={live}>{live ? 'Session live' : 'Season centre'}</span></p><h1>Your pit wall.</h1><p className={styles.intro}>Every session. Every strategy. One place to follow it all.</p></div>
+
+        <Link href={live ? '/live' : '/follow'} className={styles.followStrip} data-live={live}>
+          <span className={styles.followIcon}>{live ? <Radio size={23} aria-hidden="true" /> : <Crosshair size={23} aria-hidden="true" />}</span>
+          <span><strong>{live ? `${session?.country_name ?? 'F1'} ${session?.session_name ?? 'session'} is live` : 'A front-row seat to your driver’s race.'}</strong><small>{live ? 'Open timing, tyre strategy and race control.' : 'Follow along with timing, alerts and the details that matter.'}</small></span>
+          <span className={styles.followAction}>{live ? 'Open timing' : 'Follow along'}<ArrowUpRight size={19} aria-hidden="true" /></span>
+        </Link>
+      </header>
+
+      <nav className={styles.quickNav} aria-label="Pit wall shortcuts">
+        {shortcuts.map(({ href, label, Icon }) => (
+          <Link key={href} href={href} aria-current={href === '/dashboard' ? 'page' : undefined}>
+            <Icon size={16} aria-hidden="true" /><span>{label}</span>
+          </Link>
+        ))}
+      </nav>
+
+      <div className={styles.summaryRail} aria-label="Season highlights">
         <div className={styles.seasonProgress}>
           <div><span>Season progress</span><strong className="font-num">{completed ?? '—'} <small>/ {total ?? '—'}</small></strong></div>
           <div className={styles.roundMarkers} aria-label={completed != null && total ? `${completed} of ${total} rounds complete` : 'Season progress loading'}>
@@ -185,26 +211,20 @@ export default function DashboardPage() {
           </div>
           <Link href="/calendar" className={styles.textLink}>Season calendar <ArrowUpRight size={14} aria-hidden="true" /></Link>
         </div>
-      </motion.header>
-
-      <Link href={live ? '/live' : '/follow'} className={styles.followStrip}>
-        <span className={styles.followIcon}>{live ? <Radio size={23} aria-hidden="true" /> : <Crosshair size={23} aria-hidden="true" />}</span>
-        <span><strong>{live ? `${session?.country_name ?? 'F1'} ${session?.session_name ?? 'session'} is live` : 'A front-row seat to your driver’s race.'}</strong><small>{live ? 'Open timing, tyre strategy and race control.' : 'Follow along with timing, alerts and the details that matter.'}</small></span>
-        <span className={styles.followAction}>{live ? 'Open timing' : 'Follow along'}<ArrowUpRight size={19} aria-hidden="true" /></span>
-      </Link>
-
-      <DashboardWeekend calendar={calendar} calendarLoading={calendarLoading} standings={standings} />
-
-      <div className={styles.summaryRail} aria-label="Season highlights">
-        <div><span>Leading constructor</span><strong>{constructors[0]?.name ?? '—'}</strong><small>{constructors[0] ? `${constructors[0].points} championship points` : 'Waiting for standings'}</small></div>
-        <div><span>Most race wins</span><strong>{mostWins?.name ?? '—'}</strong><small>{mostWins ? `${mostWins.wins} ${mostWins.wins === 1 ? 'victory' : 'victories'} this season` : 'Waiting for standings'}</small></div>
+        <div style={{ "--stat-color": hexColor(constructors[0]?.color) || "var(--accent)" } as CSSProperties}><span>Leading constructor</span><strong>{constructors[0]?.name ?? '—'}</strong><small>{constructors[0] ? `${constructors[0].points} championship points` : 'Waiting for standings'}</small></div>
+        <div style={{ "--stat-color": hexColor(mostWins?.team_color) || "var(--accent)" } as CSSProperties}><span>Most race wins</span><strong>{mostWins?.name ?? '—'}</strong><small>{mostWins ? `${mostWins.wins} ${mostWins.wins === 1 ? 'victory' : 'victories'} this season` : 'Waiting for standings'}</small></div>
         <div><span>Still to race</span><strong className="font-num">{total && completed != null ? String(Math.max(0, total - completed)).padStart(2, '0') : '—'}</strong><small>Grand Prix weekends</small></div>
       </div>
 
-      <Championship standings={standings} loading={!standings && waiting} failed={!!standingsError} retry={() => { void retryStandings() }} />
+      <div className={styles.overviewGrid}>
+        <DashboardWeekend calendar={calendar} calendarLoading={calendarLoading} standings={standings} />
+        <Championship standings={standings} loading={!standings && waiting} failed={!!standingsError} retry={() => { void retryStandings() }} />
+      </div>
       <DriverPulse />
-      <DriverDuel standings={standings} />
-      <Explore />
+      <div className={styles.analysisGrid}>
+        <DriverDuel standings={standings} />
+        <Explore />
+      </div>
       <footer className={styles.footer}><span className={styles.finishLine} aria-hidden="true" /><p>Every detail. Every lap.</p><Link href="/faq" className={styles.textLink}>About the data <ArrowUpRight size={14} aria-hidden="true" /></Link></footer>
     </div>
   )

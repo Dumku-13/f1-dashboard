@@ -98,6 +98,7 @@ function useBareMode(): boolean {
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const bare = useBareMode()
+  const isTactical = usePathname() === '/tactical'
   return (
     /* Phase 12 — one switch for every framer-motion animation in the app.
        `reducedMotion="user"` makes them all follow the OS setting; before this
@@ -127,7 +128,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       )}
       <main id="main" style={{ paddingTop: bare ? '0' : '56px', paddingBottom: bare ? '0' : '120px' }}>
         <SnapshotNotice />
-        <OpsHud enabled={!bare}>{children}</OpsHud>
+        {/* Vision controls, filters and shortcuts belong only to Tactical Ops. */}
+        {isTactical ? <OpsHud enabled={!bare}>{children}</OpsHud> : children}
       </main>
       {/* Two navigation bars, one visible at a time, chosen by CSS rather than
           by a hook — see MobileTabBar's header for why the swap can't be

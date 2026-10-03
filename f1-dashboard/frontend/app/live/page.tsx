@@ -192,6 +192,10 @@ export default function LivePage() {
             <PopOutButton type="gaps" />
             <PopOutButton type="weather" />
             <PopOutButton type="timer" />
+            <nav className={styles.relatedViews} aria-label="Race centre views">
+              <Link href="/dashboard">Weekend overview <ArrowUpRight size={13} aria-hidden="true" /></Link>
+              <Link href="/follow">Follow a driver <ArrowUpRight size={13} aria-hidden="true" /></Link>
+            </nav>
             <AnimatePresence>
               {alertsOpen && <AlertSettings rows={rows} onClose={() => setAlertsOpen(false)} />}
             </AnimatePresence>

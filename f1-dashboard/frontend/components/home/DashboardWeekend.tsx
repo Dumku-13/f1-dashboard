@@ -74,7 +74,7 @@ function BriefingHeader() {
   return (
     <div className={styles.briefingHeader}>
       <div>
-        <p className="kicker">Race weekend</p>
+        <p className="kicker">01 / Race weekend</p>
         <h2 id="dashboard-weekend-title" className="display-title">The briefing</h2>
       </div>
       <Link href="/calendar" className={styles.headerLink}>

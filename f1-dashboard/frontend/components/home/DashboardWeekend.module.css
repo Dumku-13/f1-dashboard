@@ -1,5 +1,5 @@
 .briefing {
-  margin: 0 0 24px;
+  margin: 0;
   min-width: 0;
 }
 
@@ -13,7 +13,7 @@
 
 .briefingHeader h2 {
   margin: 8px 0 0;
-  font-size: clamp(28px, 4vw, 44px);
+  font-size: clamp(24px, 2.4vw, 30px);
 }
 
 .headerLink,
@@ -52,7 +52,7 @@
 
 .briefingGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(290px, 0.88fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
 }
@@ -185,7 +185,7 @@
   position: relative;
   display: grid;
   min-width: 0;
-  min-height: 242px;
+  height: 210px;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--hairline);
@@ -226,7 +226,7 @@
 .trackSvg {
   width: 100%;
   height: 100%;
-  min-height: 220px;
+  min-height: 0;
   padding: 30px 12px 18px;
   overflow: visible;
 }
@@ -330,7 +330,7 @@
 
 .sessionArea {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(210px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   padding: 16px 20px 20px;
 }
@@ -591,7 +591,7 @@
 
 .resultState {
   display: flex;
-  min-height: 220px;
+  min-height: 110px;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
@@ -761,7 +761,7 @@
 
 @media (max-width: 1080px) {
   .briefingGrid {
-    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.9fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .raceHero {
@@ -892,14 +892,14 @@
 .raceHeroSolo { grid-template-columns: 1fr; min-height: 225px; }
 .raceHeroSolo .raceName { max-width: none; font-size: clamp(40px, 4.5vw, 64px); }
 .resultsPanel { align-self: start; }
-.timer { height: 100%; padding: 16px; background: var(--surface); border-left: 2px solid var(--accent); }
-.timer p { font-size: 12px; color: var(--muted); margin: 0 0 18px; }
+.timer { padding: 12px 14px; background: var(--surface); border-left: 2px solid var(--accent); }
+.timer p { font-size: 12px; color: var(--muted); margin: 0; }
 .timer p strong { display: block; color: var(--foreground); font-size: 15px; margin-top: 5px; }
 .timerDigits { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .timerDigits > div { min-width: 0; }
 .timerDigits strong { display: block; font-size: clamp(24px, 2.5vw, 36px); font-weight: 600; line-height: 1; }
 .timerDigits span { display: block; font-size: 10px; color: var(--muted); margin-top: 8px; }
-.timer > small { display: block; font-size: 11px; color: var(--muted); margin-top: 18px; line-height: 1.5; }
+.timer > small { display: block; font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
 @media (max-width: 767px) {
   .raceHeroSolo { min-height: 0; }
   .raceHeroSolo .raceName { font-size: clamp(34px, 10vw, 50px); }
@@ -922,3 +922,55 @@
     padding-left: 22px;
   }
 }
+
+/* The SVG has a bounded viewport; its intrinsic aspect ratio must not size the card. */
+.raceHero { grid-template-columns: minmax(0, 1fr) minmax(180px, .85fr); gap: 16px; padding: 16px; }
+.raceName { font-size: clamp(27px, 2.8vw, 40px); overflow-wrap: anywhere; }
+.raceHeroSolo { grid-template-columns: 1fr; min-height: 0; }
+.raceHeroSolo .raceName { font-size: clamp(30px, 3vw, 44px); }
+.raceDescriptor { margin-bottom: 10px; }
+.weekendActions { margin-top: 14px; gap: 8px; }
+.sessionArea { padding: 14px 16px; gap: 12px; }
+.sessionRow { min-height: 36px; }
+.timer { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 1.4fr); gap: 6px 16px; align-items: center; }
+.timerDigits strong { font-size: 26px; }
+.timerDigits span { margin-top: 4px; }
+.timer > small { grid-column: 1 / -1; }
+.resultsHeader { padding: 12px 16px; }
+.resultsHeader h3 { max-width: none; font-size: 20px; }
+.resultRow { min-height: 60px; padding-block: 10px; }
+.resultState { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; padding: 14px 16px; }
+.resultState p { font-size: 13px; max-width: none; }
+.resultsFooter { min-height: 44px; padding: 8px 16px; }
+@media (min-width: 851px) and (max-width: 1100px) {
+  .raceHero { grid-template-columns: minmax(0, 1fr); }
+  .trackStage { height: 170px; }
+}
+@media (max-width: 600px) {
+  .raceHero { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .raceName { max-width: none; font-size: clamp(30px, 9vw, 44px); }
+  .trackStage { height: 190px; min-height: 0; }
+  .briefingHeader h2 { font-size: 28px; }
+  .timer { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .timerDigits strong { font-size: 30px; }
+  .resultState { grid-template-columns: auto minmax(0, 1fr); }
+  .retryButton { grid-column: 2; justify-self: start; }
+}
+
+/* Circuit dossier shares the dashboard's quieter, upright typography. */
+.briefingHeader h2 { font-family: 'Archivo', sans-serif; font-size: 27px; font-weight: 750; font-style: normal; letter-spacing: -.045em; text-transform: none; }
+.raceName { font-family: 'Archivo', sans-serif; font-style: normal; font-weight: 800; letter-spacing: -.05em; text-transform: none; }
+.upcomingPanel { border-top-width: 3px; }
+.panelTopline { padding-top: 14px; }
+.trackStage { background-color: #11161d; border-color: #2c343f; background-image: linear-gradient(#ffffff06 1px, transparent 1px), linear-gradient(90deg, #ffffff06 1px, transparent 1px); }
+.trackLabel, .trackCornerCount { color: #aeb8c6; }
+.trackPath { stroke: #ff524b; stroke-dasharray: none; stroke-width: 2px; }
+.trackGlow { stroke-width: 8px; stroke: #ff524b18; }
+.trackStage::after { width: 48px; height: 6px; opacity: .7; }
+.factGrid { background: var(--surface); }
+.fact strong { font-family: var(--font-mono); font-size: 13px; }
+.sessionHeading { font-size: 10px; letter-spacing: .1em; }
+.sessionName { font-weight: 550; }
+.sessionRow[data-state='next'] { border-left: 2px solid var(--accent); }
+.resultsHeader h3 { font-weight: 650; letter-spacing: -.03em; }
+.timerDigits strong { font-weight: 500; }

@@ -43,6 +43,11 @@
 .toolbar > button, .toolbar > label { min-height: 38px; border-radius: 2px !important; }
 .toolbar > label { padding-inline: 12px !important; }
 .toolbar select { min-height: 28px; }
+.relatedViews { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.relatedViews a { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 10px; border: 1px solid var(--border); font-size: 11px; color: var(--muted); text-decoration: none; }
+.relatedViews a:hover { color: var(--foreground); background: #213040; }
+.relatedViews a:focus-visible { outline: 2px solid #a8d3ff; outline-offset: 3px; }
+@media (pointer: coarse) { .relatedViews a { min-height: 44px; } }
 .sessionNote { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin: 0 0 14px; padding: 10px 14px; border-left: 2px solid var(--muted); background: var(--surface); font-size: 12px; color: var(--muted); }
 .sessionNote a { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; text-decoration: none; color: var(--foreground); }
 .metrics { display: grid; grid-template-columns: .85fr .65fr 1.2fr 1fr; border: 1px solid var(--border); background: var(--surface); margin-bottom: 14px; }
