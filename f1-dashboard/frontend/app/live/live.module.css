@@ -61,8 +61,7 @@
 .towerToolbar > button { min-height: 36px; }
 .viewTabs { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--border); background: var(--background); }
 .viewTabs button { min-height: 32px; }
-.mapPanel :global(.track-map-canvas) { height: 280px; width: 100%; }
-.mapPanel[data-idle='true'] :global(.track-map-canvas) { height: 170px; }
+.mapPanel :global(.track-layout-canvas) { height: 280px; width: 100%; }
 .support:empty, .messages:empty { display: none; }
 .lowerDeck { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 10px; align-items: start; margin-top: 10px; }
 .lowerDeck > * { min-width: 0; }

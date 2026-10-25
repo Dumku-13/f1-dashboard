@@ -13,7 +13,7 @@ import { useAlertEngine, useAlertSettings } from '@/lib/alerts'
 import AlertToaster from '@/components/alerts/AlertToaster'
 import AlertSettings from '@/components/alerts/AlertSettings'
 import PopOutButton from '@/components/widgets/PopOutButton'
-import TrackMap from '@/components/live/TrackMap'
+import TrackLayout from '@/components/live/TrackLayout'
 import SessionClock from '@/components/live/SessionClock'
 import EngineerDock from '@/components/engineer/EngineerDock'
 import { Thermometer, Wind, Droplets, Bell, Clock, Maximize2, Minimize2, ArrowUpRight } from 'lucide-react'
@@ -308,8 +308,8 @@ export default function LivePage() {
           </section>}
           {/* Top of the rail: mid-session the first thing you want is how long
               is left, and off-session, when the next one starts. */}
-          <div className={styles.mapPanel} data-idle={status !== 'live'}>
-          <TrackMap rows={rows} live={status === 'live' && !live.delayBuffering} trackStatus={trackStatus} selectedDriver={selectedDriver} onSelectDriver={setSelectedDriver} sessionKey={sessionIdentity} lastUpdate={lastUpdate} />
+          <div className={styles.mapPanel}>
+          <TrackLayout sessionKey={sessionIdentity} />
           </div>
           <div className={styles.support}>
             <SessionClock session={session} live={status === 'live'} />
